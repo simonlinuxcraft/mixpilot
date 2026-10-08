@@ -12,7 +12,7 @@ mod dsp;
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::io::Cursor;
+use std::io::{Cursor, Write};
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -412,9 +412,15 @@ fn runtime_dir() -> PathBuf {
 }
 
 /// A second instance would create duplicate mixpilot_* nodes. The lock dies with the process.
-fn single_instance() -> Option<std::fs::File> {
-    let file = std::fs::File::create(runtime_dir().join("mixpilot.lock")).ok()?;
-    (unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0).then_some(file)
+/// Holds our PID for the app, which may not read /proc/<pid>/environ inside the snap.
+fn single_instance(path: &Path) -> Option<std::fs::File> {
+    // no truncate before the lock, a refused second instance must not wipe the running PID
+    let mut file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(path).ok()?;
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return None;
+    }
+    let _ = file.set_len(0).and_then(|_| write!(file, "{}", std::process::id()));
+    Some(file)
 }
 
 fn fresh(path: &Path, secs: u64) -> bool {
@@ -432,7 +438,7 @@ fn write_atomic(path: &Path, data: &[u8]) {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let Some(_lock) = single_instance() else {
+    let Some(_lock) = single_instance(&runtime_dir().join("mixpilot.lock")) else {
         log!("already running");
         std::process::exit(3);
     };
@@ -1097,4 +1103,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     log!("stopped");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn refused_second_instance_keeps_pid() {
+        let path = std::env::temp_dir().join(format!("mixpilot-lock-test-{}", std::process::id()));
+        let held = super::single_instance(&path).expect("first lock");
+        assert!(super::single_instance(&path).is_none());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), std::process::id().to_string());
+        drop(held);
+        let _ = std::fs::remove_file(&path);
+    }
 }

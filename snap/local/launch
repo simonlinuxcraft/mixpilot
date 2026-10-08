@@ -2,4 +2,6 @@
 # The host session's PipeWire and pulse sockets live outside the snap's private runtime dir.
 export PIPEWIRE_RUNTIME_DIR="${PIPEWIRE_RUNTIME_DIR:-/run/user/$(id -u)}"
 export PULSE_SERVER="${PULSE_SERVER:-unix:/run/user/$(id -u)/pulse/native}"
+# pw-dump and pw-metadata try the manager socket first, which the pipewire plug does not grant
+export PIPEWIRE_REMOTE="${PIPEWIRE_REMOTE:-pipewire-0}"
 exec "$SNAP/bin/mixpilot" "$@"

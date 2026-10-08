@@ -76,18 +76,7 @@ fn replace_stale_core() {
     }
     REPLACED.store(true, std::sync::atomic::Ordering::Relaxed);
     eprintln!("mixpilot: replacing a core without current state");
-    let pids = core_pids();
-    for sig in [libc::SIGTERM, libc::SIGKILL] {
-        for &pid in &pids {
-            unsafe { libc::kill(pid, sig) };
-        }
-        for _ in 0..40 {
-            if !core_running() {
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
-    }
+    stop_core();
 }
 
 /// True if the process was started with the given XDG_RUNTIME_DIR, i.e. belongs to that session.
@@ -100,14 +89,22 @@ fn same_runtime(pid: i32, dir: &std::path::Path) -> bool {
 /// Cores of this user that belong to this session. A core from another session (a test instance,
 /// a second login) is never touched.
 fn core_pids() -> Vec<i32> {
-    let uid = unsafe { libc::getuid() }.to_string();
-    let Ok(out) = Command::new("pgrep").args(["-u", &uid, "-x", "mixpilot-core"]).output() else { return Vec::new() };
     let dir = runtime_dir();
-    String::from_utf8_lossy(&out.stdout)
+    let is_core = |pid: &i32| std::fs::read_to_string(format!("/proc/{pid}/comm")).is_ok_and(|c| c.trim() == "mixpilot-core");
+    // A current core writes its PID into this session's lock. The pgrep route stays for older cores,
+    // it fails inside the snap, which may not read /proc/<pid>/environ.
+    let locked = std::fs::read_to_string(dir.join("mixpilot.lock")).ok().and_then(|s| s.trim().parse().ok()).filter(|p| core_running() && is_core(p));
+    let uid = unsafe { libc::getuid() }.to_string();
+    let out = Command::new("pgrep").args(["-u", &uid, "-x", "mixpilot-core"]).output().map(|o| o.stdout).unwrap_or_default();
+    let mut pids: Vec<i32> = String::from_utf8_lossy(&out)
         .lines()
         .filter_map(|l| l.trim().parse().ok())
         .filter(|&pid| same_runtime(pid, &dir))
-        .collect()
+        .chain(locked)
+        .collect();
+    pids.sort_unstable();
+    pids.dedup();
+    pids
 }
 
 /// Starts the audio core detached, so it keeps running after the window is closed.
@@ -630,9 +627,22 @@ fn listen(app: AppHandle) {
 }
 
 /// Stops the audio core: all apps fall back to their normal device.
+/// SIGKILL after 2 s: a core hung in its main loop would otherwise keep its nodes and swallow the audio.
 fn stop_core() {
-    for pid in core_pids() {
-        unsafe { libc::kill(pid, libc::SIGTERM) };
+    let pids = core_pids();
+    if pids.is_empty() {
+        return;
+    }
+    for sig in [libc::SIGTERM, libc::SIGKILL] {
+        for &pid in &pids {
+            unsafe { libc::kill(pid, sig) };
+        }
+        for _ in 0..40 {
+            if !core_running() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
     }
 }
 
