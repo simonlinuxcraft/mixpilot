@@ -1,0 +1,8 @@
+# Build-time pointer to the installed runtime library, so the Tauri bundler finds it without the -dev package.
+# Use: PKG_CONFIG_PATH=app/pkgconfig cargo tauri build --bundles deb
+libdir=/usr/lib/x86_64-linux-gnu
+Name: ayatana-appindicator3-0.1
+Description: runtime library pointer for the Tauri bundler
+Version: 0.5.94
+Libs: -L${libdir} -layatana-appindicator3
+Cflags:

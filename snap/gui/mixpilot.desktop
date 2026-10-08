@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Mixpilot
+Comment=Mixer, sound and microphone control
+Exec=mixpilot
+Icon=${SNAP}/meta/gui/mixpilot.png
+Categories=AudioVideo;Audio;Mixer;
+StartupWMClass=mixpilot

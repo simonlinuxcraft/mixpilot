@@ -1,0 +1,101 @@
+name: mixpilot
+title: Mixpilot
+base: core24
+version: '0.0.1'
+summary: Mixer, sound and microphone control for PipeWire
+license: GPL-3.0-only
+description: |
+  Mixpilot sorts your apps into Game, Chat, Media and Aux channels with their own
+  faders, a ChatMix balance and ducking. It adds an equalizer, bass boost, automatic
+  loudness and a hearing protection limiter, and cleans up your microphone with noise
+  suppression, auto gain and voice presets. It keeps running in the background with
+  a tray icon.
+
+  After installing, connect the two permissions Mixpilot asks for on first start:
+  sudo snap connect mixpilot:pipewire && sudo snap connect mixpilot:audio-record
+
+  Planned:
+  - Global hotkey for microphone mute and push-to-talk
+  - Profiles (Gaming, Movie, Night) with one click, optionally switched by the running app
+  - Save your own EQ presets
+  - Headphone correction based on measured frequency responses
+  - Automatic fallback to speakers when the headset disconnects
+  - Microphone test: record and play back
+  - Compact mini mixer
+  - Separate output device per channel
+  - Separate stream mix for OBS
+grade: stable
+confinement: strict
+icon: snap/gui/mixpilot.png
+
+platforms:
+  amd64:
+
+apps:
+  mixpilot:
+    command: bin/launch
+    autostart: mixpilot.desktop
+    extensions: [gnome]
+    plugs:
+      - audio-playback
+      - audio-record
+      - pipewire
+      - network
+      - unity7
+    environment:
+      PIPEWIRE_MODULE_DIR: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/pipewire-0.3
+      SPA_PLUGIN_DIR: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/spa-0.2
+      PIPEWIRE_CONFIG_DIR: $SNAP/usr/share/pipewire
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      launch: bin/launch
+
+  # rustup from its installer, not the snap: with the gnome extension's LD_LIBRARY_PATH the
+  # rustup snap mixes two glibcs and aborts. The rust plugin finds it in $HOME/.cargo/bin.
+  rust-deps:
+    plugin: nil
+    build-packages: [curl]
+    override-build: |
+      curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable --no-modify-path
+
+  core:
+    plugin: rust
+    source: core
+    after: [rust-deps]
+    # only the sources: the local target/ folders hold gigabytes of host builds
+    override-pull: |
+      cp -r "$CRAFT_PROJECT_DIR/core/src" "$CRAFT_PROJECT_DIR/core/Cargo.toml" "$CRAFT_PROJECT_DIR/core/Cargo.lock" "$CRAFT_PART_SRC/"
+    build-packages:
+      - pkg-config
+      - libclang-dev
+      - libpipewire-0.3-dev
+    stage-packages:
+      - libpipewire-0.3-0t64
+      - libpipewire-0.3-modules
+      - libspa-0.2-modules
+      - pipewire-bin
+
+  app:
+    plugin: rust
+    source: app
+    after: [rust-deps]
+    override-pull: |
+      cd "$CRAFT_PROJECT_DIR/app"
+      cp -r src ui icons capabilities build.rs Cargo.toml Cargo.lock tauri.conf.json "$CRAFT_PART_SRC/"
+    rust-features:
+      - tauri/custom-protocol
+    build-environment:
+      - MIXPILOT_BUG_URL: https://mixpilot-bugreport.mixpilot.workers.dev/submit
+    build-packages:
+      - pkg-config
+      - libayatana-appindicator3-dev
+      - libdbus-1-dev
+    stage-packages:
+      - libayatana-appindicator3-1
+      - pulseaudio-utils
+      - procps
+      - curl

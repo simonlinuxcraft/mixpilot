@@ -1,0 +1,14 @@
+name = "mixpilot-bugreport"
+main = "src/worker.js"
+compatibility_date = "2025-01-01"
+
+# Secrets are set with the CLI, never in this file:
+#   npx wrangler secret put WEB3FORMS_KEY
+#
+# Rate limit: 5 reports per hour per IP
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "75f00d1d021f48299dde13b7de05a8bd"
+
+[observability]
+enabled = true

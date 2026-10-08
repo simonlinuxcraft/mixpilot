@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mixpilot</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <div class="titlebar" data-tauri-drag-region>
+    <div class="brand" data-tauri-drag-region>
+      <svg width="26" height="26" viewBox="0 0 512 512" aria-hidden="true" data-tauri-drag-region><rect x="16" y="16" width="480" height="480" rx="116" class="logo-bg"></rect><g class="logo-segs"><path d="M144.2 349.8 A146 146 0 0 1 118.8 305.9" class="lg-low"></path><path d="M112.2 281.4 A146 146 0 0 1 112.2 230.6" class="lg-low"></path><path d="M118.8 206.1 A146 146 0 0 1 144.2 162.2" class="lg-low"></path><path d="M162.2 144.2 A146 146 0 0 1 206.1 118.8" class="lg-mid"></path><path d="M230.6 112.2 A146 146 0 0 1 281.4 112.2" class="lg-mid"></path><path d="M305.9 118.8 A146 146 0 0 1 349.8 144.2" class="lg-hi"></path><path d="M367.8 162.2 A146 146 0 0 1 393.2 206.1" class="lg-off"></path><path d="M399.8 230.6 A146 146 0 0 1 399.8 281.4" class="lg-off"></path><path d="M393.2 305.9 A146 146 0 0 1 367.8 349.8" class="lg-off"></path></g><circle cx="256" cy="256" r="84" class="logo-knob"></circle><line x1="268.9" y1="240.7" x2="295.9" y2="208.5" class="logo-ptr"></line></svg>
+      <span class="name" data-tauri-drag-region>MIXPILOT</span>
+      <span class="sub" data-tauri-drag-region>Ton für alles, ohne Studio-Diplom</span>
+    </div>
+    <span id="core-status" class="core-status"></span>
+    <div class="pill" title="Autopilot: Apps automatisch einsortieren, Ducking und Nachtmodus. Aus = alles bleibt, wie du es einstellst.">
+      <span id="led" class="led"></span>
+      <span>Autopilot</span>
+      <button id="auto" class="switch" role="switch" aria-checked="true" aria-label="Autopilot"><span></span></button>
+    </div>
+    <button id="start-core" class="btn small" hidden>Audio-Kern starten</button>
+    <div class="win-btns">
+      <button id="about-btn" class="tb-btn" title="Über Mixpilot" aria-label="Über Mixpilot">
+        <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7.5v.01"></path></svg>
+      </button>
+      <button id="support" class="tb-btn heart" title="Mixpilot unterstützen" aria-label="Mixpilot unterstützen">
+        <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.2C.8 8.2 2.9 4.5 6.6 4.5c2.1 0 3.6 1.1 4.4 2.5.8-1.4 2.3-2.5 4.4-2.5 3.7 0 5.8 3.7 4.2 7.3C19.5 16.4 12 21 12 21z"></path></svg>
+      </button>
+      <button id="bug" class="tb-btn" title="Fehler melden" aria-label="Fehler melden">
+        <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7a4 4 0 0 1 8 0M7 10h10v5a5 5 0 0 1-10 0zM12 10v10M4 13h3M17 13h3M5 8l2.5 2M19 8l-2.5 2M5 19l2.5-2M19 19l-2.5-2"></path></svg>
+      </button>
+      <span class="tb-sep" aria-hidden="true"></span>
+      <button id="win-min" class="tb-btn" title="Minimieren" aria-label="Minimieren"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 7h10"></path></svg></button>
+      <button id="win-max" class="tb-btn" title="Maximieren" aria-label="Maximieren"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect x="2.5" y="2.5" width="9" height="9" rx="1.5"></rect></svg></button>
+      <button id="win-close" class="tb-btn close" title="Schließen, Mixpilot läuft im Hintergrund weiter" aria-label="Schließen"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8"></path></svg></button>
+    </div>
+  </div>
+  <nav class="tabs" aria-label="Bereiche">
+    <button class="tab" data-tab="mixer" aria-pressed="true">Mixer</button>
+    <button class="tab" data-tab="sound" aria-pressed="false">Sound</button>
+    <button class="tab" data-tab="mic" aria-pressed="false">Mikrofon</button>
+    <button class="tab" data-tab="auto" aria-pressed="false">Automatik</button>
+    <span class="spacer"></span>
+    <label class="field inline">Ausgabe<select id="output" class="output-select"></select></label>
+    <label class="field inline">Eingabe<select id="input" class="input-select"></select></label>
+  </nav>
+
+  <main>
+    <p id="error" class="error" hidden></p>
+
+    <section id="tab-mixer" class="page">
+      <div class="strips" id="strips"></div>
+      <div class="cols">
+        <div class="card grow">
+          <div class="card-head"><span class="label">CHATMIX</span><span id="cm-text" class="mono"></span></div>
+          <div class="row">
+            <span class="end">Game</span>
+            <input id="chatmix" class="hz" type="range" min="-100" max="100" step="1" aria-label="ChatMix zwischen Game und Chat">
+            <span class="end right">Chat</span>
+          </div>
+          <p class="hint">Ein Regler statt zwei: schiebt die Balance zwischen Spiel und Sprach-Chat.</p>
+        </div>
+        <div class="card grow2">
+          <span class="label">AUTOPILOT HAT GERADE</span>
+          <ul id="events" class="events"></ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-sound" class="page" hidden>
+      <div class="grid">
+        <div class="card">
+          <div class="card-head"><span class="title">Bass Boost</span>
+            <span class="head-right"><input id="bass-value"><button id="bass-on" class="switch" role="switch" aria-checked="false" aria-label="Bass Boost"><span></span></button></span>
+          </div>
+          <input id="bass" class="hz" type="range" min="0" max="100" step="1" aria-label="Bass Boost Stärke">
+          <p class="hint" id="bass-text"></p>
+        </div>
+        <div class="card">
+          <span class="title">Auto-Lautstärke</span>
+          <div class="seg" id="autovol" role="group" aria-label="Auto-Lautstärke"></div>
+          <p class="hint" id="autovol-text"></p>
+        </div>
+        <div class="card">
+          <div class="card-head"><span class="title">Gehörschutz</span>
+            <button id="limiter" class="switch" role="switch" aria-checked="true" aria-label="Gehörschutz"><span></span></button>
+          </div>
+          <p class="hint">Limiter fängt plötzliche Knalle und Pegelspitzen ab.</p>
+          <div class="card-head line"><span class="title small">Stimmen klarer</span>
+            <button id="clarity" class="switch" role="switch" aria-checked="false" aria-label="Stimmen klarer"><span></span></button>
+          </div>
+          <p class="hint">Hebt Sprache um 3 kHz leicht an, gut für Filme und Streams.</p>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head wrap">
+          <span class="title">Equalizer <span id="eq-name" class="muted"></span></span>
+          <div class="chips" id="eq-presets" role="group" aria-label="EQ-Presets"></div>
+        </div>
+        <svg id="eq-curve" class="curve" viewBox="0 0 1000 120" preserveAspectRatio="none" aria-hidden="true">
+          <line x1="0" y1="60" x2="1000" y2="60" class="zero"></line>
+          <polyline id="eq-line" class="eqline" points=""></polyline>
+        </svg>
+        <div class="bands-scroll"><div class="bands" id="bands"></div></div>
+      </div>
+    </section>
+
+    <section id="tab-mic" class="page" hidden>
+      <div class="card">
+        <div class="card-head"><span class="label">MIKROFON <span id="mic-name"></span></span><span class="mono" id="mic-state"></span></div>
+        <div class="meter-row"><span class="meter-label">Eingang</span><div class="hmeter" id="mic-in-meter"></div></div>
+        <div class="meter-row"><span class="meter-label">Nach Bearbeitung</span><div class="hmeter" id="mic-meter"></div></div>
+        <div class="card-head line">
+          <p class="hint" id="default-mic-text"></p>
+          <button id="make-default" class="btn primary">Als Standard-Mikrofon setzen</button>
+        </div>
+      </div>
+      <div class="grid">
+        <div class="card">
+          <span class="title">Rauschunterdrückung</span>
+          <div class="seg" id="noise" role="group" aria-label="Rauschunterdrückung"></div>
+          <p class="hint">Tastatur, Lüfter und Straße raus, Stimme bleibt. Beim Sprechen sollte "Eingang" gelb werden, sonst die Verstärkung anpassen.</p>
+        </div>
+        <div class="card">
+          <div class="card-head"><span class="title">Verstärkung</span><input id="gain-text"></div>
+          <input id="mic-gain" class="hz" type="range" min="0" max="200" step="1" aria-label="Mikrofon-Verstärkung">
+          <div class="card-head"><span class="title small">Auto-Pegel</span>
+            <button id="agc" class="switch" role="switch" aria-checked="true" aria-label="Auto-Pegel"><span></span></button>
+          </div>
+          <p class="hint">Gleichmäßig laut, ohne zu übersteuern.</p>
+        </div>
+        <div class="card">
+          <span class="title">Stimme</span>
+          <div class="chips" id="voice" role="group" aria-label="Stimm-Preset"></div>
+          <p class="hint" id="voice-text"></p>
+          <div class="card-head"><span class="title small">Noise Gate</span>
+            <button id="gate" class="switch" role="switch" aria-checked="true" aria-label="Noise Gate"><span></span></button>
+          </div>
+          <p class="hint">Sprechpausen werden still, auch Tippen und Klicken.</p>
+          <div class="card-head"><span class="title small">Mithören</span>
+            <button id="monitor" class="switch" role="switch" aria-checked="false" aria-label="Mithören"><span></span></button>
+          </div>
+          <div class="card-head"><span class="title small">Stumm</span>
+            <button id="mic-mute" class="switch" role="switch" aria-checked="false" aria-label="Mikrofon stumm"><span></span></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-auto" class="page" hidden>
+      <div class="cols">
+        <div class="card grow" id="rules-card">
+          <span class="label">REGELN</span>
+          <p class="hint" id="auto-note"></p>
+          <div class="rule"><div><span class="title small">Ducking</span><p class="hint">Media und Game 12 dB leiser, solange im Chat gesprochen wird</p></div>
+            <button id="ducking" class="switch" role="switch" aria-checked="true" aria-label="Ducking"><span></span></button></div>
+          <div class="rule"><div><span class="title small">Neue Apps einsortieren</span><p class="hint">Bekannte Apps automatisch in ihren Kanal</p></div>
+            <button id="auto-route" class="switch" role="switch" aria-checked="true" aria-label="Neue Apps einsortieren"><span></span></button></div>
+          <div class="rule"><div><span class="title small">Nachtmodus</span><p class="hint">Auto-Lautstärke Nacht, Bass aus, von
+            <select id="night-from" class="mini" aria-label="Nachtmodus ab"></select> bis <select id="night-to" class="mini" aria-label="Nachtmodus bis"></select> Uhr</p></div>
+            <button id="night" class="switch" role="switch" aria-checked="false" aria-label="Nachtmodus"><span></span></button></div>
+          <div class="rule"><div><span class="title small">Mit dem System starten</span><p class="hint">Mixpilot läuft nach dem Anmelden im Hintergrund, ohne Fenster</p></div>
+            <button id="autostart" class="switch" role="switch" aria-checked="false" aria-label="Mit dem System starten"><span></span></button></div>
+        </div>
+        <div class="card grow">
+          <span class="label">APPS UND KANÄLE</span>
+          <div id="apps"></div>
+          <p class="hint">Apps, die gerade spielen, und deine gemerkten Zuordnungen. Änderungen gelten sofort.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="setup" class="overlay" hidden>
+  <div class="dialog wide" role="dialog" aria-modal="true" aria-labelledby="setup-title">
+    <div>
+      <h1 id="setup-title">Willkommen bei Mixpilot</h1>
+      <p class="hint">Kurzer Check, damit alles sauber läuft. Das passiert nur beim ersten Start.</p>
+    </div>
+    <div class="dialog-cols">
+      <ul id="checks" class="checks"></ul>
+      <div class="dialog-side">
+        <label class="field wide">Worüber möchtest du hören?<select id="setup-output" class="output-select"></select></label>
+        <label class="field wide">Welches Mikrofon nutzt du?<select id="setup-input" class="input-select"></select></label>
+        <label class="check"><input type="checkbox" id="setup-autostart" checked> Mit dem System starten, damit alles automatisch im Hintergrund läuft</label>
+        <p class="hint">Apps landen automatisch im passenden Kanal, Discord in Chat, Spotify in Media. In Discord und Co. wählst du "Mixpilot Mikrofon" für deine bearbeitete Stimme.</p>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="recheck" class="btn">Erneut prüfen</button>
+      <button id="setup-done" class="btn primary">Fertig</button>
+    </div>
+  </div>
+</div>
+<div id="support-info" class="overlay" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="support-title">
+    <h1 id="support-title">Mixpilot unterstützen</h1>
+    <p>Mixpilot ist kostenlos. Eine Spende ist komplett freiwillig und schaltet nichts frei, alle Funktionen sind auch ohne nutzbar.</p>
+    <p>Wenn dir die App hilft und du etwas zurückgeben möchtest, geht das über Ko-fi. Das öffnet sich in deinem Browser, bezahlt wird direkt bei Ko-fi bzw. PayPal. Mixpilot sieht keine Zahlungsdaten.</p>
+    <p class="hint">Fehler melden und Ideen schicken hilft genauso.</p>
+    <div class="actions">
+      <button id="support-cancel" class="btn">Schließen</button>
+      <button id="support-go" class="btn primary">Weiter zu Ko-fi</button>
+    </div>
+  </div>
+</div>
+<div id="about" class="overlay" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="about-title">
+    <h1 id="about-title">Über Mixpilot</h1>
+    <p class="mono" id="about-version"></p>
+    <div class="about-info">
+    <span class="title small">Datenschutz</span>
+    <p class="hint">Mixpilot verarbeitet deinen Ton nur auf diesem Rechner und sendet von sich aus nichts. Nur ein Fehlerbericht, den du selbst abschickst, verlässt den Rechner: deine Beschreibung, falls angegeben Fehlermeldungen und deine E-Mail, und wenn du es erlaubst, Systeminfos und das Protokoll des Audio-Kerns.</p>
+    <span class="title small">Verwendete Software</span>
+    <ul class="credits">
+      <li>Barlow Semi Condensed, SIL Open Font License 1.1</li>
+      <li>RNNoise über nnnoiseless, BSD-3-Clause</li>
+      <li>Tauri, MIT / Apache-2.0</li>
+      <li>pipewire-rs, MIT</li>
+    </ul>
+    </div>
+    <details class="preview" id="licenses-box"><summary>Lizenztexte aller Bibliotheken anzeigen</summary><pre id="licenses"></pre></details>
+    <p class="hint" id="about-contact"></p>
+    <div class="actions">
+      <button id="quit" class="btn" title="Beendet auch den Audio-Kern. Apps spielen dann wieder direkt über dein Gerät.">Mixpilot beenden</button>
+      <span class="spacer"></span>
+      <button id="about-close" class="btn primary">Schließen</button>
+    </div>
+  </div>
+</div>
+<script src="i18n.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

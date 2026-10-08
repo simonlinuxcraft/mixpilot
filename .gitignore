@@ -1,0 +1,16 @@
+target/
+*.snap
+parts/
+prime/
+stage/
+.wrangler/
+docs/
+spike/
+app/icons/android/
+app/icons/ios/
+app/icons/Square*
+app/icons/StoreLogo.png
+app/icons/64x64.png
+app/icons/icon.icns
+app/icons/icon.ico
+app/gen/

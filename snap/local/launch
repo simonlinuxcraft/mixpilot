@@ -1,0 +1,5 @@
+#!/bin/sh
+# The host session's PipeWire and pulse sockets live outside the snap's private runtime dir.
+export PIPEWIRE_RUNTIME_DIR="${PIPEWIRE_RUNTIME_DIR:-/run/user/$(id -u)}"
+export PULSE_SERVER="${PULSE_SERVER:-unix:/run/user/$(id -u)/pulse/native}"
+exec "$SNAP/bin/mixpilot" "$@"
