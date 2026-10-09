@@ -264,10 +264,12 @@ impl Leveler {
     }
 }
 
-/// Split-band de-esser: when the sibilant band above 5 kHz stands out against the whole voice,
-/// only that band is turned down, so S and Sch stop hissing without dulling the rest.
+/// Split-band de-esser: when the sibilant band stands out against the whole voice, only that band
+/// is turned down, so S and Sch stop hissing without dulling the rest.
 pub struct DeEsser {
     lp: Biquad,
+    threshold: f32,
+    floor: f32,
     env_hf: f32,
     env_all: f32,
     fall: f32,
@@ -277,8 +279,10 @@ pub struct DeEsser {
 }
 
 impl DeEsser {
-    pub fn new() -> Self {
-        Self { lp: Biquad::low_pass(5000.0), env_hf: 0.0, env_all: 0.0, fall: coef(30.0), gain: 1.0, attack: coef(1.0), release: coef(80.0) }
+    /// 1 normal: S above 5 kHz, at most 12 dB down. 2 strong: from 3.5 kHz, so Sch too, at most 18 dB.
+    pub fn new(strength: u32) -> Self {
+        let (split, threshold, floor) = if strength >= 2 { (3500.0, 0.2, 0.125) } else { (5000.0, 0.4, 0.25) };
+        Self { lp: Biquad::low_pass(split), threshold, floor, env_hf: 0.0, env_all: 0.0, fall: coef(30.0), gain: 1.0, attack: coef(1.0), release: coef(80.0) }
     }
 
     #[inline]
@@ -287,9 +291,9 @@ impl DeEsser {
         let s = x - self.lp.run(x);
         self.env_hf = s.abs().max(self.env_hf - self.env_hf * self.fall);
         self.env_all = x.abs().max(self.env_all - self.env_all * self.fall);
-        // the sibilant band may reach 40 % of the voice before it is pulled down, at most by 12 dB
+        // the sibilant band may reach `threshold` of the voice before it is pulled down
         let ratio = self.env_hf / (self.env_all + 1e-6);
-        let target = if ratio > 0.4 { (0.4 / ratio).max(0.25) } else { 1.0 };
+        let target = if ratio > self.threshold { (self.threshold / ratio).max(self.floor) } else { 1.0 };
         let k = if target < self.gain { self.attack } else { self.release };
         self.gain += (target - self.gain) * k;
         x - s * (1.0 - self.gain)
@@ -741,13 +745,19 @@ mod tests {
 
     #[test]
     fn de_esser_tames_sibilants_only() {
-        let run = |freq: f32| {
-            let mut d = DeEsser::new();
+        let run = |strength: u32, freq: f32| {
+            let mut d = DeEsser::new(strength);
             20.0 * sine_gain(|x| d.run(x * 0.3) / 0.3, freq).log10()
         };
-        eprintln!("de-esser: 300 Hz {:.1} dB, 7 kHz {:.1} dB", run(300.0), run(7000.0));
-        assert!(run(300.0).abs() < 1.0, "voice untouched: {:.1} dB", run(300.0));
-        assert!(run(7000.0) < -6.0, "sibilant down: {:.1} dB", run(7000.0));
+        eprintln!("de-esser normal: 300 Hz {:.1} dB, 7 kHz {:.1} dB", run(1, 300.0), run(1, 7000.0));
+        eprintln!("de-esser strong: 300 Hz {:.1} dB, 4.5 kHz {:.1} dB, 7 kHz {:.1} dB", run(2, 300.0), run(2, 4500.0), run(2, 7000.0));
+        for strength in [1, 2] {
+            assert!(run(strength, 300.0).abs() < 1.0, "voice untouched: {:.1} dB", run(strength, 300.0));
+            assert!(run(strength, 1000.0).abs() < 1.5, "voice band untouched: {:.1} dB", run(strength, 1000.0));
+        }
+        assert!(run(1, 7000.0) < -6.0, "sibilant down: {:.1} dB", run(1, 7000.0));
+        assert!(run(2, 7000.0) < run(1, 7000.0) - 3.0, "strong is clearly stronger");
+        assert!(run(2, 4500.0) < -6.0, "strong also catches Sch: {:.1} dB", run(2, 4500.0));
     }
 
     #[test]

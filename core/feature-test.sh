@@ -161,7 +161,8 @@ cfg '{"mic":{"voice":"broadcast"}}'
 set -- $(stats)
 check "broadcast stays below -3 dBFS too (peak $2)" "$(between "$2" 0 0.709)"
 # broadband noise shows the presets best: radio cuts everything outside 300 Hz to 3.5 kHz
-cfg '{"mic":{"agc":false,"voice":"natural","noise":"off"}}'
+# (the de-esser would pull the noise down in both, so it is off to compare the filters alone)
+cfg '{"mic":{"agc":false,"voice":"natural","noise":"off","deess":"off"}}'
 feed noise.wav
 natural=$(stats | cut -d' ' -f1)
 cfg '{"mic":{"voice":"radio"}}'
@@ -223,6 +224,21 @@ check "state file lists the app in Aux" "$(python3 -c "
 import json; s=json.load(open('$STATE'))
 print('ok' if any(a['name']=='mp_test_media' and a['channel']=='aux' for a in s['apps']) else s['apps'])")"
 check "state file has events" "$(python3 -c "import json; s=json.load(open('$STATE')); print('ok' if s['events'] else 'none')")"
+
+echo "-- devices"
+# a name that looks like a number: pw-dump turns it into one, the registry keeps it text
+ODD=$(pactl load-module module-null-sink sink_name=0070 sink_properties=device.description=0070)
+# pactl would read 0070 as an index
+pw-metadata -n default 0 default.configured.audio.sink '{"name":"0070"}' Spa:String:JSON >/dev/null
+pactl set-default-source mp_test_mic
+sleep 0.5
+devices() { python3 -c "import json; d=json.load(open('$STATE'))['devices']; n=[x['name'] for x in d['sinks']+d['sources']]; print('ok' if $1 else d)"; }
+check "outputs and microphones listed, none of Mixpilot's own" "$(devices "'mp_test_out' in n and 'mp_test_mic' in n and not any(x.startswith('mixpilot') for x in n) and not d['duplicate']")"
+check "numeric-looking device name stays text" "$(devices "{'name': '0070', 'description': '0070'} in d['sinks']")"
+check "system defaults follow the session" "$(devices "d['default_sink'] == '0070' and d['default_source'] == 'mp_test_mic'")"
+pactl unload-module "$ODD"
+sleep 0.5
+check "unplugged default leaves the list and the default" "$(devices "'0070' not in n and d['default_sink'] not in ('', '0070')")"
 
 echo "-- shutdown"
 kill $MEDIA; MEDIA=

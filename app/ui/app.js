@@ -31,6 +31,7 @@ const AUTOVOL = [
   ['night', t('Nacht'), t('Leise Stellen lauter, Explosionen leiser. Für spät abends.')],
 ];
 const NOISE = [['off', t('Aus')], ['normal', 'Normal'], ['strong', t('Stark')]];
+const DEESS = NOISE;
 const VOICE = [['natural', t('Natürlich')], ['warm', 'Warm'], ['radio', 'Radio'], ['broadcast', 'Broadcast']];
 const VOICE_TEXT = {
   natural: t('Deine Stimme wie sie ist, nur Rumpeln unter 80 Hz wird entfernt.'),
@@ -121,7 +122,7 @@ function defaults(c) {
   c.output ??= '';
   c.input ??= '';
   c.mic ??= {};
-  Object.entries({ gain: 100, mute: false, noise: 'normal', agc: true, gate: true, voice: 'natural', monitor: false })
+  Object.entries({ gain: 100, mute: false, noise: 'normal', agc: true, gate: true, voice: 'natural', monitor: false, deess: 'normal' })
     .forEach(([k, v]) => (c.mic[k] ??= v));
   c.ducking ??= true;
   c.night ??= {};
@@ -526,6 +527,7 @@ function buildMic() {
   setMicInMeter = makeSegments($('mic-in-meter'), 40);
   painters.push(() => ($('voice-text').textContent = VOICE_TEXT[cfg.mic.voice] || ''));
   buttonGroup('noise', NOISE, () => cfg.mic.noise, (v) => (cfg.mic.noise = v));
+  buttonGroup('deess', DEESS, () => cfg.mic.deess, (v) => (cfg.mic.deess = v));
   buttonGroup('voice', VOICE, () => cfg.mic.voice, (v) => (cfg.mic.voice = v));
   bindRange('mic-gain', () => cfg.mic.gain, (v) => (cfg.mic.gain = v));
   numField($('gain-text'), { label: t('Mikrofon-Verstärkung in Prozent'), get: () => cfg.mic.gain, set: (v) => (cfg.mic.gain = Math.round(v)), min: 0, max: 200, show: () => `${cfg.mic.gain} %` });

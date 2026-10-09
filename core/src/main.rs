@@ -62,6 +62,7 @@ struct Params {
     mic_agc: AtomicBool,
     mic_gate: AtomicBool,
     mic_voice: AtomicU32,
+    mic_deess: AtomicU32,
     monitor: AtomicBool,
 }
 
@@ -100,6 +101,7 @@ impl Params {
         self.mic_agc.store(cfg.mic.agc, Relaxed);
         self.mic_gate.store(cfg.mic.gate, Relaxed);
         self.mic_voice.store(index_of(&dsp::VOICE_PRESETS, &cfg.mic.voice), Relaxed);
+        self.mic_deess.store(index_of(&["off", "normal", "strong"], &cfg.mic.deess), Relaxed);
         self.monitor.store(cfg.mic.monitor, Relaxed);
     }
 }
@@ -229,6 +231,7 @@ struct MicDsp {
     agc: Agc,
     comp: Leveler,
     deess: DeEsser,
+    deess_idx: u32,
     limiter: Limiter,
     gain: Smooth,
     vad: Smooth,
@@ -246,7 +249,8 @@ impl MicDsp {
             gate: Gate::new(),
             agc: Agc::voice(),
             comp: Leveler::broadcast(),
-            deess: DeEsser::new(),
+            deess: DeEsser::new(1),
+            deess_idx: 1,
             // -3 dBFS leaves headroom for the codecs of voice chat apps
             limiter: Limiter::new(-3.0, 80.0),
             gain: Smooth::new(1.0, 20.0),
@@ -260,6 +264,11 @@ impl MicDsp {
         if v != self.voice_idx {
             self.voice_idx = v;
             self.voice = dsp::voice_preset(v);
+        }
+        let d = p.mic_deess.load(Relaxed);
+        if d != self.deess_idx {
+            self.deess_idx = d;
+            self.deess = DeEsser::new(d);
         }
         let (target, noise) = (load(&p.mic_gain), p.mic_noise.load(Relaxed));
         let (gate_on, agc_on) = (p.mic_gate.load(Relaxed), p.mic_agc.load(Relaxed));
@@ -304,7 +313,9 @@ impl MicDsp {
                 }
                 if broadcast {
                     y *= self.comp.gain(y);
-                    // compression and the presence boost push S sounds forward
+                }
+                // last before the limiter: compression and presence boosts push S sounds forward
+                if d > 0 {
                     y = self.deess.run(y);
                 }
                 let (y, _) = self.limiter.run(y, y);

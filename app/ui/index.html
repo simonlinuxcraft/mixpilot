@@ -118,15 +118,20 @@
         <div class="card">
           <span class="title">Rauschunterdrückung</span>
           <div class="seg" id="noise" role="group" aria-label="Rauschunterdrückung"></div>
-          <p class="hint">Tastatur, Lüfter und Straße raus, Stimme bleibt. Beim Sprechen sollte "Eingang" gelb werden, sonst die Verstärkung anpassen.</p>
+          <p class="hint">Tastatur, Lüfter und Straße raus, Stimme bleibt.</p>
           <div class="card-head line"><span class="title small">Noise Gate</span>
             <button id="gate" class="switch" role="switch" aria-checked="true" aria-label="Noise Gate"><span></span></button>
           </div>
           <p class="hint">Sprechpausen werden still, auch Tippen und Klicken.</p>
+          <div class="card-head line"><span class="title small">S-Laute</span>
+            <div class="seg small" id="deess" role="group" aria-label="Scharfe S-Laute entschärfen"></div>
+          </div>
+          <p class="hint">Entschärft scharfe S- und Zischlaute.</p>
         </div>
         <div class="card">
           <div class="card-head"><span class="title">Verstärkung</span><input id="gain-text"></div>
           <input id="mic-gain" class="hz" type="range" min="0" max="200" step="1" aria-label="Mikrofon-Verstärkung">
+          <p class="hint">Beim Sprechen sollte "Eingang" gelb werden.</p>
           <div class="card-head"><span class="title small">Auto-Pegel</span>
             <button id="agc" class="switch" role="switch" aria-checked="true" aria-label="Auto-Pegel"><span></span></button>
           </div>

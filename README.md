@@ -73,7 +73,7 @@ Needs PipeWire with WirePlumber, the default on most current distributions
 **Microphone**
 
 - Virtual "Mixpilot Microphone" for Discord, OBS and every other app
-- Noise suppression (RNNoise) and a noise gate with automatic threshold
+- Noise suppression (RNNoise), a noise gate with automatic threshold and a de-esser against sharp S sounds
 - Auto level, gain up to 200 %
 - Voice presets: Natural, Warm, Radio, Broadcast
 - Hear yourself, with meters for the raw and the processed signal

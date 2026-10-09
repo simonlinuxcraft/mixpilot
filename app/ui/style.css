@@ -159,6 +159,8 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .seg { display: flex; gap: 4px; padding: 4px; border-radius: 8px; background: var(--well); }
 .seg button { flex: 1 1 0; min-height: 40px; border: none; border-radius: 6px; background: transparent; color: #c9c6bf; font-weight: 600; cursor: pointer; }
 .seg button[aria-pressed="true"] { background: var(--acc2); color: var(--acc2-ink); }
+.seg.small { flex: none; padding: 3px; gap: 2px; }
+.seg.small button { flex: none; min-height: 28px; padding: 0 10px; font-size: 12px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chips button { min-height: 34px; padding: 0 14px; border-radius: 17px; border: 1px solid var(--line2); background: var(--panel2); color: #c9c6bf; font-weight: 600; font-size: 13px; cursor: pointer; }
 .chips button[aria-pressed="true"] { background: var(--acc2); color: var(--acc2-ink); border-color: var(--acc2); }

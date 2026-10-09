@@ -61,11 +61,13 @@ pub struct Mic {
     pub voice: String,
     /// hear yourself on the output
     pub monitor: bool,
+    /// "off" | "normal" | "strong": turns sharp S sounds down
+    pub deess: String,
 }
 
 impl Default for Mic {
     fn default() -> Self {
-        Self { gain: 100.0, mute: false, noise: "normal".into(), agc: true, gate: true, voice: "natural".into(), monitor: false }
+        Self { gain: 100.0, mute: false, noise: "normal".into(), agc: true, gate: true, voice: "natural".into(), monitor: false, deess: "normal".into() }
     }
 }
 
