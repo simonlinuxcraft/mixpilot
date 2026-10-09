@@ -17,14 +17,27 @@ const ICONS = {
   master: 'M11 5 6 9H2v6h4l5 4V5zM15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14',
 };
 const CHANNELS = [['game', 'Game'], ['chat', 'Chat'], ['media', 'Media'], ['music', t('Musik')], ['aux', 'Aux']];
-const CH_EQ = [['flat', 'Flat'], ['bass', 'Bass'], ['voice', t('Stimme')], ['gaming', 'Gaming'], ['clear', t('Klar')]];
-const EQ_PRESETS = {
-  Flat: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  Bass: [6, 5, 3, 1, 0, 0, 0, 0, 0, 0],
-  Stimme: [-3, -2, -1, 0, 2, 3, 3, 2, 0, -1],
-  Gaming: [3, 4, 2, 0, -1, 0, 1, 3, 2, 1],
-  Klar: [0, 0, -1, -1, 0, 1, 2, 3, 3, 2],
+// same curves as EQ_BUILTIN in core/src/config.rs
+const EQ_BUILTIN = {
+  flat: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  bass: [6, 5, 3, 1, 0, 0, 0, 0, 0, 0],
+  voice: [-3, -2, -1, 0, 2, 3, 3, 2, 0, -1],
+  gaming: [3, 4, 2, 0, -1, 0, 1, 3, 2, 1],
+  clear: [0, 0, -1, -1, 0, 1, 2, 3, 3, 2],
 };
+const EQ_LABEL = { flat: 'Flat', bass: 'Bass', voice: t('Stimme'), gaming: 'Gaming', clear: t('Klar') };
+// more own presets would wrap the chips and push the sound tab into scrolling
+const EQ_OWN_MAX = 4;
+const isBuiltIn = (k) => Object.hasOwn(EQ_BUILTIN, k);
+const presetLabel = (k) => EQ_LABEL[k] || k;
+const presetKeys = () => [...Object.keys(EQ_BUILTIN), ...Object.keys(cfg.eq_presets)];
+const curveOf = (k) => (isBuiltIn(k) ? cfg.eq_edits[k] || EQ_BUILTIN[k] : cfg.eq_presets[k] || EQ_BUILTIN.flat);
+// a channel whose own preset is gone plays flat, the core does the same
+const chPreset = (id) => (isBuiltIn(cfg[id].eq) || cfg.eq_presets[cfg[id].eq] ? cfg[id].eq : 'flat');
+// keys, English labels and the German labels of voice and clear
+const reservedName = (n) => [...Object.keys(EQ_BUILTIN), 'stimme', 'klar'].includes(n.toLowerCase());
+const curves = (o) => Object.fromEntries(Object.entries(o || {})
+  .filter(([, g]) => Array.isArray(g) && g.length === 10 && g.every(Number.isFinite)));
 const FREQ = ['31', '62', '125', '250', '500', '1k', '2k', '4k', '8k', '16k'];
 const AUTOVOL = [
   ['off', t('Aus'), t('Kein Eingriff in die Lautstärke.')],
@@ -117,9 +130,15 @@ function defaults(c) {
   c.limiter ??= true;
   c.clarity ??= false;
   c.auto_volume ??= 'off';
-  c.eq ??= [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-  c.eq_presets = Object.fromEntries(Object.entries(c.eq_presets || {})
-    .filter(([, g]) => Array.isArray(g) && g.length === 10 && g.every(Number.isFinite)));
+  c.eq_presets = curves(c.eq_presets);
+  c.eq_edits = Object.fromEntries(Object.entries(curves(c.eq_edits)).filter(([k]) => isBuiltIn(k)));
+  // up to 0.0.2 one equalizer worked on everything; a tuned curve stays as an own preset
+  if (Array.isArray(c.eq)) {
+    const g = c.eq;
+    const known = [...Object.values(EQ_BUILTIN), ...Object.values(c.eq_presets)].some((p) => p.every((v, i) => v === g[i]));
+    if (!known && Object.keys(curves({ g })).length && Object.keys(c.eq_presets).length < EQ_OWN_MAX) c.eq_presets[t('Mein EQ')] ??= g.slice();
+    delete c.eq;
+  }
   c.output ??= '';
   c.input ??= '';
   c.mic ??= {};
@@ -323,10 +342,13 @@ function strip(id, label, master) {
     mute = el('button', 'mute', t('STUMM'));
     mute.addEventListener('click', change(() => (cfg[id].mute = !cfg[id].mute)));
     chip = el('button', 'eqchip');
-    chip.addEventListener('click', change(() => {
-      const i = CH_EQ.findIndex(([k]) => k === cfg[id].eq);
-      cfg[id].eq = CH_EQ[(i + 1) % CH_EQ.length][0];
-    }));
+    chip.setAttribute('aria-haspopup', 'menu');
+    chip.setAttribute('aria-expanded', 'false');
+    chip.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (eqMenu?.chip === chip) closeEqMenu();
+      else openEqMenu(id, chip);
+    });
     btns.append(mute, chip);
     root.append(btns, apps);
   }
@@ -336,9 +358,10 @@ function strip(id, label, master) {
 
     if (mute) mute.setAttribute('aria-pressed', String(muted));
     if (chip) {
-      const name = (CH_EQ.find(([k]) => k === cfg[id].eq) || CH_EQ[0])[1];
+      const name = presetLabel(chPreset(id));
       chip.replaceChildren(el('b', null, 'EQ'), el('span', null, name));
-      chip.setAttribute('aria-label', t('Klang {0}: {1}, wechseln', label, name));
+      chip.title = name;
+      chip.setAttribute('aria-label', t('Klang {0}: {1}, wählen', label, name));
     }
   });
   if (master) {
@@ -370,82 +393,154 @@ function paintCardsMixer() {
 }
 
 // ---------- sound ----------
-// more chips would wrap the card into a second row and push the page into scrolling
-const EQ_OWN_MAX = 4;
-function eqPreset() {
-  const same = ([, g]) => g.every((v, i) => v === cfg.eq[i]);
-  const b = Object.entries(EQ_PRESETS).find(same);
-  if (b) return { name: b[0], label: t(b[0]) };
-  const u = Object.entries(cfg.eq_presets).find(same);
-  return u ? { name: u[0], label: u[0], own: true } : { name: '', label: t('Eigenes') };
+// Presets are edited here, the mixer picks one per channel. Built-ins can be tuned and reset,
+// a new preset starts as a copy of the one on screen.
+let selP = 'flat';
+let editFor = null; // channel whose "Edit" opened the sound tab, gets a new preset right away
+let naming = false;
+
+function setBand(i, v) {
+  if (isBuiltIn(selP)) {
+    const g = curveOf(selP).slice();
+    g[i] = v;
+    if (g.every((x, j) => x === EQ_BUILTIN[selP][j])) delete cfg.eq_edits[selP];
+    else cfg.eq_edits[selP] = g;
+  } else if (cfg.eq_presets[selP]) {
+    cfg.eq_presets[selP][i] = v;
+  }
 }
 
-function ownPresetChips(box) {
-  let naming = false;
+function nameField() {
+  const input = el('input', 'chip-name');
+  Object.assign(input, { type: 'text', maxLength: 20, spellcheck: false, placeholder: t('Name') });
+  input.dataset.k = 'name';
+  input.setAttribute('aria-label', t('Name für das neue Preset'));
+  const done = () => { naming = false; paintAll(); };
+  const commit = () => {
+    const n = input.value.trim();
+    if (!naming) return;
+    if (!n) return done();
+    if (reservedName(n)) {
+      input.setAttribute('aria-invalid', 'true');
+      input.title = t('So heißt schon ein eingebautes Preset');
+      return;
+    }
+    cfg.eq_presets[n] = curveOf(selP).slice();
+    selP = n;
+    if (editFor) cfg[editFor].eq = n;
+    naming = false;
+    paintAll();
+    save();
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') commit();
+    else if (e.key === 'Escape') done();
+  });
+  input.addEventListener('input', () => input.removeAttribute('aria-invalid'));
+  input.addEventListener('blur', () => { if (input.getAttribute('aria-invalid')) done(); else commit(); });
+  return input;
+}
+
+function presetChips(box) {
   let key = null;
-  const nodes = [];
-  const chip = (text, cls, label, onClick) => {
-    const b = el('button', cls, text);
-    if (label) b.setAttribute('aria-label', label);
-    b.addEventListener('click', onClick);
-    return b;
-  };
-  const nameField = () => {
-    const input = el('input', 'chip-name');
-    Object.assign(input, { type: 'text', maxLength: 20, spellcheck: false, placeholder: t('Name') });
-    input.setAttribute('aria-label', t('Name für das eigene Preset'));
-    const builtIn = (n) => n === 'Eigenes' || Object.keys(EQ_PRESETS).some((k) => k === n || t(k) === n);
-    const done = () => { naming = false; paintAll(); };
-    const commit = () => {
-      const n = input.value.trim();
-      if (!naming) return;
-      if (!n) return done();
-      if (builtIn(n)) {
-        input.setAttribute('aria-invalid', 'true');
-        input.title = t('So heißt schon ein eingebautes Preset');
-        return;
-      }
-      cfg.eq_presets[n] = cfg.eq.slice();
-      naming = false;
-      paintAll();
-      save();
-    };
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') commit();
-      else if (e.key === 'Escape') done();
-    });
-    input.addEventListener('input', () => input.removeAttribute('aria-invalid'));
-    input.addEventListener('blur', () => { if (input.getAttribute('aria-invalid')) done(); else commit(); });
-    return input;
-  };
-  return (cur) => {
-    const names = Object.keys(cfg.eq_presets);
-    const action = naming ? 'name' : cur.own ? 'delete' : cur.name ? '' : names.length < EQ_OWN_MAX ? 'save' : 'full';
-    const k = JSON.stringify([names, cur.name, action]);
+  return () => {
+    const own = Object.keys(cfg.eq_presets);
+    const edited = isBuiltIn(selP) && !!cfg.eq_edits[selP];
+    const k = JSON.stringify([own, selP, edited, naming]);
     if (k === key) return;
     key = k;
-    nodes.splice(0).forEach((n) => n.remove());
-    for (const n of names) {
-      const b = chip(n, 'own', null, change(() => (cfg.eq = cfg.eq_presets[n].slice())));
-      b.setAttribute('aria-pressed', String(n === cur.name));
-      nodes.push(b);
+    // the chips are rebuilt, so keyboard focus moves to the new chip with the same job
+    const focused = box.contains(document.activeElement) ? document.activeElement.dataset.k : null;
+    box.replaceChildren();
+    const chip = (text, k, cls, onClick, label) => {
+      const b = el('button', cls, text);
+      b.dataset.k = k;
+      if (label) b.setAttribute('aria-label', label);
+      b.addEventListener('click', onClick);
+      box.append(b);
+      return b;
+    };
+    for (const p of presetKeys()) {
+      chip(presetLabel(p), `p:${p}`, null, () => { selP = p; naming = false; paintAll(); }).setAttribute('aria-pressed', String(p === selP));
     }
-    if (action === 'save') {
-      const b = chip(t('+ Speichern'), 'ghost', t('Aktuelle Kurve als eigenes Preset speichern'), () => { naming = true; paintAll(); });
-      nodes.push(b);
-    } else if (action === 'full') {
-      const b = chip(t('+ Speichern'), 'ghost', null, () => {});
-      b.setAttribute('aria-disabled', 'true');
-      b.title = t('Höchstens {0} eigene Presets, lösch zuerst eins', EQ_OWN_MAX);
-      nodes.push(b);
-    } else if (action === 'delete') {
-      nodes.push(chip(t('Löschen'), 'ghost', t('Preset {0} löschen', cur.name), change(() => delete cfg.eq_presets[cur.name])));
-    } else if (action === 'name') {
-      nodes.push(nameField());
+    if (edited) {
+      chip(t('Zurücksetzen'), 'reset', 'ghost', change(() => delete cfg.eq_edits[selP]), t('Preset {0} zurücksetzen', presetLabel(selP)));
+    } else if (!isBuiltIn(selP)) {
+      chip(t('Löschen'), 'delete', 'ghost', change(() => {
+        delete cfg.eq_presets[selP];
+        for (const [id] of CHANNELS) if (cfg[id].eq === selP) cfg[id].eq = 'flat';
+        selP = 'flat';
+      }), t('Preset {0} löschen', selP));
     }
-    box.append(...nodes);
-    if (action === 'name') nodes.at(-1).focus();
+    if (naming) {
+      const input = nameField();
+      box.append(input);
+      input.focus();
+    } else {
+      const full = own.length >= EQ_OWN_MAX;
+      const b = chip(t('+ Neu'), 'new', 'ghost', () => { if (!full) { naming = true; paintAll(); } }, t('Neues Preset als Kopie von {0}', presetLabel(selP)));
+      if (full) {
+        b.setAttribute('aria-disabled', 'true');
+        b.title = t('Höchstens {0} eigene Presets, lösch zuerst eins', EQ_OWN_MAX);
+      }
+    }
+    // after naming, the focus lands on the preset that is now selected
+    const next = focused === 'name' ? `p:${selP}` : focused;
+    if (next) box.querySelector(`[data-k="${CSS.escape(next)}"]`)?.focus();
   };
+}
+
+// The EQ button of a mixer strip opens this list: every preset, plus the way into the sound tab.
+let eqMenu = null;
+function closeEqMenu(refocus) {
+  if (!eqMenu) return;
+  eqMenu.box.remove();
+  eqMenu.chip.setAttribute('aria-expanded', 'false');
+  if (refocus) eqMenu.chip.focus();
+  eqMenu = null;
+}
+
+function openEqMenu(id, chip) {
+  closeEqMenu();
+  const box = el('div', 'eqmenu');
+  box.setAttribute('role', 'menu');
+  const item = (text, role, onClick) => {
+    const b = el('button', null, text);
+    b.setAttribute('role', role);
+    b.addEventListener('click', () => { closeEqMenu(true); onClick(); });
+    box.append(b);
+    return b;
+  };
+  for (const p of presetKeys()) {
+    item(presetLabel(p), 'menuitemradio', change(() => (cfg[id].eq = p))).setAttribute('aria-checked', String(p === chPreset(id)));
+  }
+  box.append(el('div', 'eqmenu-sep'));
+  item(t('Bearbeiten…'), 'menuitem', () => {
+    selP = chPreset(id);
+    naming = false;
+    document.querySelector('.tab[data-tab="sound"]').click();
+    editFor = id;
+  });
+  box.addEventListener('keydown', (e) => {
+    const items = [...box.querySelectorAll('button')];
+    const i = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus();
+    } else if (e.key === 'Escape' || e.key === 'Tab') {
+      closeEqMenu(e.key === 'Escape');
+    }
+  });
+  document.body.append(box);
+  const r = chip.getBoundingClientRect();
+  box.style.minWidth = `${Math.max(150, r.width)}px`;
+  box.style.left = `${Math.max(8, Math.min(r.left, innerWidth - box.offsetWidth - 8))}px`;
+  // opens upwards when the strip sits near the bottom edge
+  if (r.bottom + 4 + box.offsetHeight > innerHeight) box.style.bottom = `${innerHeight - r.top + 4}px`;
+  else box.style.top = `${r.bottom + 4}px`;
+  chip.setAttribute('aria-expanded', 'true');
+  eqMenu = { box, chip };
+  (box.querySelector('[aria-checked="true"]') || box.firstElementChild).focus();
 }
 
 function buildSound() {
@@ -461,45 +556,41 @@ function buildSound() {
   bindSwitch('limiter', () => cfg.limiter, (v) => (cfg.limiter = v));
   bindSwitch('clarity', () => cfg.clarity, (v) => (cfg.clarity = v));
 
-  const presets = $('eq-presets');
-  const pbtn = Object.keys(EQ_PRESETS).map((name) => {
-    const b = el('button', null, t(name));
-    b.addEventListener('click', change(() => (cfg.eq = EQ_PRESETS[name].slice())));
-    presets.append(b);
-    return [name, b];
-  });
-  const paintOwn = ownPresetChips(presets);
+  const paintChips = presetChips($('eq-presets'));
   const bands = $('bands');
   const bandEls = FREQ.map((f, i) => {
     const box = el('div', 'band');
     const val = numField(el('input'), {
       label: `Band ${f} Hz in dB`,
-      get: () => cfg.eq[i],
-      set: (v) => (cfg.eq[i] = Math.round(v)),
+      get: () => curveOf(selP)[i],
+      set: (v) => setBand(i, Math.round(v)),
       min: -12, max: 12,
-      show: () => (cfg.eq[i] > 0 ? '+' : '') + cfg.eq[i],
+      show: () => (curveOf(selP)[i] > 0 ? '+' : '') + curveOf(selP)[i],
     });
     const wrap = el('div', 'bwrap');
     const s = el('input', 'bslider');
     Object.assign(s, { type: 'range', min: -12, max: 12, step: 1 });
     s.setAttribute('aria-label', `Band ${f} Hz`);
-    s.addEventListener('input', change(() => (cfg.eq[i] = Number(s.value))));
+    s.addEventListener('input', change(() => setBand(i, Number(s.value))));
     wrap.append(s);
     box.append(val, wrap, el('span', 'mono freq', f));
     bands.append(box);
-    return [s, val];
-  });
-  painters.push(() => {
-    const cur = eqPreset();
-    $('eq-name').textContent = cur.label;
-    pbtn.forEach(([n, b]) => b.setAttribute('aria-pressed', String(n === cur.name)));
-    paintOwn(cur);
-    bandEls.forEach(([s, val], i) => {
-      if (document.activeElement !== s) s.value = cfg.eq[i];
-    });
+    return s;
   });
   const paintGrid = eqLeds($('eq-grid'));
-  painters.push(() => paintGrid(cfg.eq));
+  painters.push(() => {
+    if (!isBuiltIn(selP) && !cfg.eq_presets[selP]) selP = 'flat';
+    const used = CHANNELS.filter(([id]) => chPreset(id) === selP).map(([, l]) => l);
+    $('eq-name').textContent = presetLabel(selP) + (isBuiltIn(selP) && cfg.eq_edits[selP] ? ` ${t('(geändert)')}` : '');
+    $('eq-used').textContent = used.length ? t('Benutzt von {0}. Änderungen hörst du dort sofort.', used.join(', '))
+      : t('Kein Kanal benutzt dieses Preset. Im Mixer wählst du es über den EQ-Knopf eines Kanals.');
+    paintChips();
+    const g = curveOf(selP);
+    bandEls.forEach((s, i) => {
+      if (document.activeElement !== s) s.value = g[i];
+    });
+    paintGrid(g);
+  });
 }
 
 // LED columns around an amber zero row, three per band, the outer two blend into the neighbours.
@@ -900,6 +991,24 @@ async function runChecks() {
 // Shown once after an update. `version` stays null until the release that ships it sets it.
 const NEWS = [
   {
+    version: null,
+    title: 'Musik-Kanal und EQ pro Kanal',
+    items: [
+      {
+        art: 'mixer',
+        tab: 'mixer',
+        title: 'Musik-Kanal',
+        text: 'Musik hat einen eigenen Kanal neben Media, mit eigener Lautstärke und eigenem Klang. Spotify und andere Player landen automatisch dort.',
+      },
+      {
+        art: 'eq',
+        tab: 'sound',
+        title: 'Ein Preset pro Kanal',
+        text: 'Jeder Kanal hat seinen eigenen Equalizer. Im Mixer wählst du über den EQ-Knopf ein Preset, im Sound-Tab passt du Presets an oder legst neue an.',
+      },
+    ],
+  },
+  {
     version: '0.0.2',
     title: 'Push-to-Mute und Presets',
     items: [
@@ -973,11 +1082,11 @@ function eqArt(box) {
   // 288 px: the art cell is 300 px wide with 6 px padding
   const card = mini(box, 0.48, 600);
   const name = el('span', 'muted');
-  const title = el('span', 'title', 'Equalizer ');
+  const title = el('span', 'title', 'Presets ');
   title.append(name);
   const chips = el('div', 'chips');
-  const shapes = [['Flat', EQ_PRESETS.Flat], ['Bass', EQ_PRESETS.Bass], ['Stimme', EQ_PRESETS.Stimme], ['Mein Kopfhörer', [6, 5, 3, 0, -2, -2, 1, 4, 3, 1]]];
-  const btns = shapes.map(([n]) => chips.appendChild(el('button', null, t(n))));
+  const shapes = [['flat', EQ_BUILTIN.flat], ['bass', EQ_BUILTIN.bass], ['voice', EQ_BUILTIN.voice], [t('Mein Kopfhörer'), [6, 5, 3, 0, -2, -2, 1, 4, 3, 1]]];
+  const btns = shapes.map(([n]) => chips.appendChild(el('button', null, presetLabel(n))));
   const head = el('div', 'card-head wrap');
   head.append(title, chips);
   const grid = el('div', 'eqgrid');
@@ -989,7 +1098,7 @@ function eqArt(box) {
   return () => {
     if (tick++ % 26 === 0) {
       n = (n + 1) % shapes.length;
-      name.textContent = t(shapes[n][0]);
+      name.textContent = presetLabel(shapes[n][0]);
       btns.forEach((b, i) => b.setAttribute('aria-pressed', String(i === n)));
     }
     // 1 dB per step, like dragging the band sliders
@@ -1232,10 +1341,13 @@ async function init() {
   for (const b of document.querySelectorAll('.tab')) {
     b.addEventListener('click', () => {
       tab = b.dataset.tab;
+      editFor = null;
       document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-pressed', String(t === b)));
       document.querySelectorAll('.page').forEach((p) => (p.hidden = p.id !== `tab-${tab}`));
     });
   }
+  document.addEventListener('click', (e) => { if (eqMenu && !eqMenu.box.contains(e.target)) closeEqMenu(); });
+  addEventListener('resize', () => closeEqMenu());
   paintAll();
   paintApps();
   await refreshDevices();

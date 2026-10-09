@@ -16,6 +16,11 @@ const EN = {
   'Eigene EQ-Presets': 'Your own EQ presets',
   'Stell den Equalizer nach deinem Geschmack ein und speichere die Kurve unter eigenem Namen. Bis zu vier eigene Presets, ein Klick holt sie zurück.': 'Set the equalizer to your taste and save the curve under your own name. Up to four presets of your own, one click brings them back.',
   'Mein Kopfhörer': 'My headphones',
+  'Musik-Kanal und EQ pro Kanal': 'Music channel and an EQ per channel',
+  'Musik-Kanal': 'Music channel',
+  'Musik hat einen eigenen Kanal neben Media, mit eigener Lautstärke und eigenem Klang. Spotify und andere Player landen automatisch dort.': 'Music has its own channel next to Media, with its own volume and sound. Spotify and other players land there automatically.',
+  'Ein Preset pro Kanal': 'A preset per channel',
+  'Jeder Kanal hat seinen eigenen Equalizer. Im Mixer wählst du über den EQ-Knopf ein Preset, im Sound-Tab passt du Presets an oder legst neue an.': "Every channel has its own equalizer. Pick a preset with the EQ button in the mixer, tune presets or add new ones in the sound tab.",
   'Ansehen': 'Show me',
   'Alles klar': 'Got it',
   'Strg+Alt+M': 'Ctrl+Alt+M',
@@ -41,7 +46,8 @@ const EN = {
   'STUMM': 'MUTE',
   'Systemlautstärke deines Ausgabegeräts': 'System volume of your output device',
   '{0} Lautstärke': '{0} volume',
-  'Klang {0}: {1}, wechseln': 'Sound {0}: {1}, change',
+  'Klang {0}: {1}, wählen': 'Sound {0}: {1}, choose',
+  'Bearbeiten…': 'Edit…',
   'Master in Prozent': 'Master in percent',
   '{0} in dB': '{0} in dB',
   'stumm': 'muted',
@@ -58,13 +64,18 @@ const EN = {
   'Stimmen klarer': 'Clearer voices',
   'Hebt Sprache um 3 kHz leicht an, gut für Filme und Streams.': 'Lifts speech around 3 kHz slightly, good for movies and streams.',
   'EQ-Presets': 'EQ presets',
-  'Eigenes': 'Custom',
   'Stimme': 'Voice',
   'Klar': 'Clear',
-  '+ Speichern': '+ Save',
-  'Aktuelle Kurve als eigenes Preset speichern': 'Save the current curve as your own preset',
+  '+ Neu': '+ New',
+  'Neues Preset als Kopie von {0}': 'New preset as a copy of {0}',
   'Name': 'Name',
-  'Name für das eigene Preset': 'Name for your preset',
+  'Name für das neue Preset': 'Name for the new preset',
+  'Zurücksetzen': 'Reset',
+  'Preset {0} zurücksetzen': 'Reset preset {0}',
+  '(geändert)': '(changed)',
+  'Mein EQ': 'My EQ',
+  'Benutzt von {0}. Änderungen hörst du dort sofort.': 'Used by {0}. You hear changes there right away.',
+  'Kein Kanal benutzt dieses Preset. Im Mixer wählst du es über den EQ-Knopf eines Kanals.': "No channel uses this preset. In the mixer, pick it with a channel's EQ button.",
   'So heißt schon ein eingebautes Preset': 'A built-in preset already has this name',
   'Höchstens {0} eigene Presets, lösch zuerst eins': 'At most {0} presets of your own, delete one first',
   'Löschen': 'Delete',
@@ -252,7 +263,7 @@ const EN = {
 
 // Names and labels that read the same in both languages.
 const SAME = new Set(['MIXPILOT', 'Mixpilot', 'Autopilot', 'Mixer', 'Sound', 'Game', 'Chat', 'Media', 'Aux', 'Master', 'CHATMIX',
-  'Bass Boost', 'Equalizer', 'Ducking', 'Noise Gate', 'Flat', 'Bass', 'Gaming', 'Normal', 'Warm', 'Radio', 'Broadcast', 'EQ', 'Ko-fi']);
+  'Bass Boost', 'Equalizer', 'Presets', 'Ducking', 'Noise Gate', 'Flat', 'Bass', 'Gaming', 'Normal', 'Warm', 'Radio', 'Broadcast', 'EQ', 'Ko-fi']);
 
 function t(s, ...args) {
   let r = s;

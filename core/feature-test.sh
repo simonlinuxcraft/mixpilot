@@ -210,10 +210,15 @@ check "ducking off restores Media" "$(near "$(level "s['levels']['media'][0]")" 
 kill $CHAT; CHAT=
 sleep 0.5
 before=$(rms mp_test_out "-P {stream.capture.sink=true}")
-cfg '{"eq":[0,0,0,0,-12,0,0,0,0,0]}'
+cfg '{"eq_presets":{"cut":[0,0,0,0,-12,0,0,0,0,0]},"media":{"eq":"cut"}}'
 after=$(rms mp_test_out "-P {stream.capture.sink=true}")
-check "equalizer -12 dB at 500 Hz lowers a 440 Hz tone ($before -> $after)" "$(less "$after" "$(python3 -c "print($before*0.5)")")"
-cfg '{"eq":[0,0,0,0,0,0,0,0,0,0]}'
+check "own preset -12 dB at 500 Hz on Media lowers a 440 Hz tone ($before -> $after)" "$(less "$after" "$(python3 -c "print($before*0.5)")")"
+cfg '{"media":{"eq":"gone"},"chat":{"eq":"cut"}}'
+check "unknown preset plays flat, a preset on Chat leaves Media alone" "$(near "$(rms mp_test_out "-P {stream.capture.sink=true}")" "$before")"
+cfg '{"media":{"eq":"flat"},"chat":{"eq":"voice"},"eq_edits":{"flat":[0,0,0,0,-12,0,0,0,0,0]}}'
+after=$(rms mp_test_out "-P {stream.capture.sink=true}")
+check "a tuned built-in preset applies too ($before -> $after)" "$(less "$after" "$(python3 -c "print($before*0.5)")")"
+cfg '{"eq_edits":{}}'
 
 echo "-- automatic sorting"
 check "media tone sits in Media" "$([ "$(links_of mp_test_media)" = "mixpilot_media " ] && echo ok || echo "linked to: $(links_of mp_test_media)")"

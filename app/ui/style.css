@@ -110,7 +110,7 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 /* mixer strips */
 /* the channel strips fill the window, init() gives the rotated faders the matching length */
 .strips { flex: 1 1 auto; min-height: 0; display: flex; gap: 12px; align-items: stretch; }
-.strip { flex: 1 1 150px; padding: 12px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+.strip { flex: 1 1 150px; min-width: 0; padding: 12px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
 .strip.master { border-color: #3a3326; }
 .sep { width: 1px; background: var(--line2); margin: 0 6px; }
 .strip-head { display: flex; align-items: center; gap: 8px; }
@@ -138,6 +138,13 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .mute[aria-pressed="true"] { background: var(--red); color: #1a0705; border-color: var(--red); }
 .eqchip { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; font-weight: 600; letter-spacing: 0; font-size: 11px; color: var(--text); }
 .eqchip b { color: var(--muted); font-size: 10px; letter-spacing: 0.08em; }
+.eqchip { min-width: 0; padding: 0 4px; }
+.eqchip span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.eqmenu { position: fixed; z-index: 30; display: flex; flex-direction: column; gap: 2px; max-width: 240px; padding: 4px; border-radius: 8px; background: var(--panel2); border: 1px solid var(--line2); box-shadow: 0 8px 24px rgba(0, 0, 0, .5); }
+.eqmenu button { min-height: 34px; padding: 0 14px; border: none; border-radius: 6px; background: transparent; color: #c9c6bf; font-weight: 600; font-size: 13px; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.eqmenu button:hover { background: var(--panel); color: var(--text); }
+.eqmenu button[aria-checked="true"] { background: var(--acc2); color: var(--acc2-ink); }
+.eqmenu-sep { height: 1px; margin: 2px 4px; background: var(--line2); }
 .appchips { display: flex; flex-wrap: wrap; gap: 4px; min-height: 22px; }
 .appchips span { padding: 2px 8px; border-radius: 10px; background: var(--seg-off); font-size: 11px; color: #c9c6bf; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -162,6 +169,7 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .seg.small { flex: none; padding: 3px; gap: 2px; }
 .seg.small button { flex: none; min-height: 28px; padding: 0 10px; font-size: 12px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.eq-head { justify-content: flex-start; column-gap: 16px; }
 .chips button { min-height: 34px; padding: 0 14px; border-radius: 17px; border: 1px solid var(--line2); background: var(--panel2); color: #c9c6bf; font-weight: 600; font-size: 13px; cursor: pointer; }
 .chips button[aria-pressed="true"] { background: var(--acc2); color: var(--acc2-ink); border-color: var(--acc2); }
 .chips button.ghost { background: transparent; border-style: dashed; color: var(--muted); }
@@ -170,7 +178,7 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .chip-name[aria-invalid="true"] { border-color: var(--red); }
 
 .bands-scroll { overflow-x: auto; }
-.eqgrid { display: flex; gap: 4px; min-width: 520px; margin-bottom: 8px; padding: 8px 12px; border-radius: 6px; background: var(--well); }
+.eqgrid { display: flex; gap: 4px; min-width: 520px; margin-bottom: 4px; padding: 8px 12px; border-radius: 6px; background: var(--well); }
 .eqgrid .ledcol { flex: 1 1 0; grid-template-rows: repeat(var(--rows), 7px); gap: 3px; }
 .eqgrid .ledcol i { width: 100%; }
 .ledcol i.dim { opacity: 0.45; }
@@ -180,8 +188,8 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .band .num { width: 44px; min-height: 26px; font-size: 14px; padding: 0 2px; }
 .band .mono { color: var(--text); font-size: 11px; }
 .band .freq { color: var(--muted); }
-.bwrap { position: relative; width: 32px; height: 84px; }
-.bslider { -webkit-appearance: none; appearance: none; position: absolute; width: 84px; height: 32px; left: -26px; top: 26px; transform: rotate(-90deg); background: transparent; margin: 0; cursor: pointer; }
+.bwrap { position: relative; width: 32px; height: 80px; }
+.bslider { -webkit-appearance: none; appearance: none; position: absolute; width: 80px; height: 32px; left: -24px; top: 24px; transform: rotate(-90deg); background: transparent; margin: 0; cursor: pointer; }
 .bslider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--line2); }
 .bslider::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 22px; margin-top: -9px; border-radius: 3px; border: none; background: var(--acc); }
 

@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Music channel: music players like Spotify, Rhythmbox or Amberol get their own channel next to Media, so music can have its own volume and sound. Video players and browsers stay in Media. Existing setups move the music players over on the first start, your own assignments stay as they are
+- An equalizer per channel: the EQ button of each mixer strip picks a preset. The sound tab edits presets, built-in ones can be tuned and reset, a new one starts as a copy of the one on screen. The single equalizer for everything is gone, a curve tuned there is kept as the preset "My EQ"
 
 ## 0.0.2 - Push-to-mute and presets
 

@@ -56,7 +56,7 @@ Needs PipeWire with WirePlumber, the default on most current distributions
 
 **Mixer**
 
-- Five channels: Game, Chat, Media, Music and Aux, each with fader, meter, mute and a quick EQ preset
+- Five channels: Game, Chat, Media, Music and Aux, each with fader, meter, mute and its own EQ preset
 - New apps land in the right channel automatically. Move one by hand and Mixpilot remembers it
 - ChatMix: one slider for the balance between game and voice chat
 - Master is your output device's own volume, the same one the volume keys change
@@ -64,7 +64,7 @@ Needs PipeWire with WirePlumber, the default on most current distributions
 
 **Sound**
 
-- 10-band equalizer shown as LED columns, with presets (Flat, Bass, Voice, Gaming, Clear) and up to four of your own
+- 10-band equalizer per channel, shown as LED columns. The built-in presets (Flat, Bass, Voice, Gaming, Clear) can be tuned, up to four of your own come on top, the mixer picks one per channel
 - Bass boost below 100 Hz with clipping protection
 - Auto volume: Gentle evens out jumps between apps, Night lifts quiet parts and tames explosions
 - Hearing protection limiter with 1 ms lookahead
@@ -91,7 +91,6 @@ The interface is available in English and German.
 
 ## Planned
 
-- Push-to-talk: hold a key to speak
 - Profiles (Gaming, Movie, Night) with one click, optionally switched by the running app
 - Headphone correction based on measured frequency responses
 - Compact mini mixer

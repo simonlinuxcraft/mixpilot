@@ -87,31 +87,6 @@ impl Biquad {
     }
 }
 
-/// A fixed chain of up to three filters, used for presets.
-pub type Chain3 = [Biquad; 3];
-
-#[inline]
-pub fn run3(c: &mut Chain3, x: f32) -> f32 {
-    let y = c[0].run(x);
-    let y = c[1].run(y);
-    c[2].run(y)
-}
-
-/// Per-channel sound presets: 0 flat, 1 bass, 2 voice, 3 gaming, 4 clear.
-pub const CHANNEL_PRESETS: [&str; 5] = ["flat", "bass", "voice", "gaming", "clear"];
-
-pub fn channel_preset(i: u32) -> Chain3 {
-    let id = Biquad::identity();
-    match i {
-        1 => [Biquad::low_shelf(110.0, 6.0), Biquad::peaking(350.0, -1.5, 1.0), id],
-        2 => [Biquad::high_pass(90.0), Biquad::peaking(250.0, -2.0, 1.0), Biquad::peaking(2800.0, 4.0, 1.0)],
-        // footsteps and reloads live around 2 to 5 kHz, a little low end keeps explosions full
-        3 => [Biquad::low_shelf(80.0, 2.0), Biquad::peaking(400.0, -2.0, 1.0), Biquad::peaking(3500.0, 4.0, 0.9)],
-        4 => [Biquad::peaking(300.0, -2.0, 1.0), Biquad::peaking(3000.0, 2.0, 1.0), Biquad::high_shelf(7000.0, 4.0)],
-        _ => [id, id, id],
-    }
-}
-
 /// Microphone voice presets: 0 natural, 1 warm, 2 radio, 3 broadcast.
 pub const VOICE_PRESETS: [&str; 4] = ["natural", "warm", "radio", "broadcast"];
 
@@ -591,17 +566,14 @@ mod tests {
 
     #[test]
     fn presets_are_finite_and_flat_is_identity() {
-        for i in 0..5 {
-            let mut c = channel_preset(i);
-            assert!(sine_gain(|x| run3(&mut c, x), 1000.0).is_finite());
-        }
         for i in 0..4 {
             let mut c = voice_preset(i);
             let g = sine_gain(|x| run5(&mut c, x), 1000.0);
             assert!(g.is_finite() && g > 0.4 && g < 3.0, "voice {i}: {g}");
         }
-        let mut flat = channel_preset(0);
-        assert_eq!(run3(&mut flat, 0.37), 0.37);
+        let mut flat = Eq10::default();
+        flat.set(&[0.0; 10]);
+        assert_eq!(flat.run(0.37), 0.37);
     }
 
     #[test]

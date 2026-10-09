@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -21,12 +22,21 @@ pub const CHANNELS: [ChannelDef; 5] = [
     ChannelDef { id: "aux", label: "Aux" },
 ];
 
+/// Built-in EQ presets, 10 bands in dB at dsp::EQ_FREQS. app.js shows the same table as EQ_BUILTIN.
+pub const EQ_BUILTIN: [(&str, [f32; 10]); 5] = [
+    ("flat", [0.0; 10]),
+    ("bass", [6.0, 5.0, 3.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+    ("voice", [-3.0, -2.0, -1.0, 0.0, 2.0, 3.0, 3.0, 2.0, 0.0, -1.0]),
+    ("gaming", [3.0, 4.0, 2.0, 0.0, -1.0, 0.0, 1.0, 3.0, 2.0, 1.0]),
+    ("clear", [0.0, 0.0, -1.0, -1.0, 0.0, 1.0, 2.0, 3.0, 3.0, 2.0]),
+];
+
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct Channel {
     pub volume: f32,
     pub mute: bool,
-    /// sound preset, see dsp::CHANNEL_PRESETS
+    /// EQ preset: a key of EQ_BUILTIN or the name of one of the user's own presets
     pub eq: String,
 }
 
@@ -113,8 +123,10 @@ pub struct Config {
     pub clarity: bool,
     /// "off" | "soft" | "night"
     pub auto_volume: String,
-    /// 10 bands in dB, -12..=12, see dsp::EQ_FREQS
-    pub eq: [f32; 10],
+    /// the user's own EQ presets, name -> 10 bands in dB
+    pub eq_presets: HashMap<String, Vec<f32>>,
+    /// built-in presets the user tuned, key -> 10 bands in dB; missing means as shipped
+    pub eq_edits: HashMap<String, Vec<f32>>,
     /// node.name of the hardware sink, empty = system default
     pub output: String,
     /// node.name of the microphone, empty = system default source
@@ -144,7 +156,8 @@ impl Default for Config {
             limiter: true,
             clarity: false,
             auto_volume: "off".into(),
-            eq: [0.0; 10],
+            eq_presets: HashMap::new(),
+            eq_edits: HashMap::new(),
             output: String::new(),
             input: String::new(),
             mic: Mic::default(),
@@ -194,6 +207,15 @@ pub fn index_of(list: &[&str], name: &str) -> u32 {
 impl Config {
     pub fn channels(&self) -> [&Channel; CHANNELS.len()] {
         [&self.game, &self.chat, &self.media, &self.music, &self.aux]
+    }
+
+    /// The bands a channel preset stands for; an unknown name plays flat.
+    pub fn curve(&self, name: &str) -> [f32; 10] {
+        let ten = |v: &Vec<f32>| <[f32; 10]>::try_from(v.as_slice()).ok();
+        match EQ_BUILTIN.iter().find(|(k, _)| *k == name) {
+            Some((_, shipped)) => self.eq_edits.get(name).and_then(ten).unwrap_or(*shipped),
+            None => self.eq_presets.get(name).and_then(ten).unwrap_or([0.0; 10]),
+        }
     }
 
     /// The first matching rule decides. Built-in rules are skipped while automatic sorting is off.
@@ -337,6 +359,16 @@ mod tests {
         assert_eq!(c.channel_for(&[Some("tidal-hifi"), Some("Chromium"), None]), Some(3));
         assert_eq!(c.channel_for(&[Some("chromium"), None, None]), Some(2));
         assert_eq!(parse(r#"{"rules":[{"match":"spotify","channel":"media"}]}"#).unwrap().channel_for(&[Some("spotify"), None, None]), Some(3));
+    }
+
+    #[test]
+    fn channel_curves_from_built_ins_edits_and_own_presets() {
+        let c = parse(r#"{"eq_presets":{"Mine":[1,2,3,4,5,6,7,8,9,10],"Short":[1]},"eq_edits":{"bass":[2,0,0,0,0,0,0,0,0,0]}}"#).unwrap();
+        assert_eq!(c.curve("gaming"), EQ_BUILTIN[3].1);
+        assert_eq!(c.curve("bass")[0], 2.0);
+        assert_eq!(c.curve("Mine")[9], 10.0);
+        assert_eq!(c.curve("Short"), [0.0; 10]);
+        assert_eq!(c.curve("gone"), [0.0; 10]);
     }
 
     #[test]

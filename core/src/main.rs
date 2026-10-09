@@ -31,7 +31,7 @@ use pw::types::ObjectType;
 use spa::pod::{serialize::PodSerializer, Object, Pod, Value};
 
 use config::{index_of, Config, CHANNELS};
-use dsp::{run3, run5, sanitize, Agc, Biquad, Chain3, Chain5, DeEsser, Envelope, Eq10, Gate, Leveler, Limiter, Smooth};
+use dsp::{run5, sanitize, Agc, Biquad, Chain5, DeEsser, Envelope, Eq10, Gate, Leveler, Limiter, Smooth};
 
 /// ~100 ms of stereo audio. Anything older is dropped so latency cannot creep up.
 const RING_MAX: usize = 48_000 / 10 * 2;
@@ -51,13 +51,13 @@ const N: usize = CHANNELS.len();
 #[derive(Default)]
 struct Params {
     gain: [AtomicU32; N],
-    ch_eq: [AtomicU32; N],
+    /// per channel the 10 band gains of its preset
+    ch_eq: [[AtomicU32; 10]; N],
     master: AtomicU32,
     bass_db: AtomicU32,
     limiter: AtomicBool,
     clarity: AtomicBool,
     auto_volume: AtomicU32,
-    eq: [AtomicU32; 10],
     ducking: AtomicBool,
     mic_gain: AtomicU32,
     mic_noise: AtomicU32,
@@ -86,7 +86,9 @@ impl Params {
                 _ => 1.0,
             };
             put(&self.gain[i], if ch.mute { 0.0 } else { dsp::fader_to_gain(ch.volume) * mix });
-            self.ch_eq[i].store(index_of(&dsp::CHANNEL_PRESETS, &ch.eq), Relaxed);
+            for (a, g) in self.ch_eq[i].iter().zip(cfg.curve(&ch.eq)) {
+                put(a, if g.is_finite() { g.clamp(-12.0, 12.0) } else { 0.0 });
+            }
         }
         put(&self.master, dsp::fader_to_gain(cfg.master));
         put(&self.bass_db, if night { 0.0 } else { cfg.bass.clamp(0.0, 100.0) * 0.12 });
@@ -94,9 +96,6 @@ impl Params {
         self.clarity.store(cfg.clarity, Relaxed);
         let av = if night { 2 } else { index_of(&["off", "soft", "night"], &cfg.auto_volume) };
         self.auto_volume.store(av, Relaxed);
-        for (a, g) in self.eq.iter().zip(cfg.eq) {
-            put(a, if g.is_finite() { g.clamp(-12.0, 12.0) } else { 0.0 });
-        }
         self.ducking.store(cfg.ducking && cfg.auto, Relaxed);
         put(&self.mic_gain, if cfg.mic.mute { 0.0 } else { dsp::mic_gain(cfg.mic.gain) });
         self.mic_noise.store(index_of(&["off", "normal", "strong"], &cfg.mic.noise), Relaxed);
@@ -164,9 +163,7 @@ struct Mix {
     master: Smooth,
     duck: Smooth,
     duck_env: Envelope,
-    ch_chain: [[Chain3; 2]; N],
-    ch_idx: [u32; N],
-    eq: [Eq10; 2],
+    ch_eq: [[Eq10; 2]; N],
     bass: [Biquad; 2],
     bass_db: f32,
     clarity: [Biquad; 2],
@@ -177,15 +174,12 @@ struct Mix {
 
 impl Mix {
     fn new() -> Self {
-        let flat = dsp::channel_preset(0);
         Self {
             gains: [Smooth::new(0.0, 20.0); N],
             master: Smooth::new(0.0, 20.0),
             duck: Smooth::new(1.0, 200.0),
             duck_env: Envelope::new(400.0),
-            ch_chain: [[flat; 2]; N],
-            ch_idx: [0; N],
-            eq: [Eq10::default(), Eq10::default()],
+            ch_eq: Default::default(),
             bass: [Biquad::low_shelf(BASS_FREQ, 0.0); 2],
             bass_db: 0.0,
             clarity: [Biquad::peaking(3200.0, 3.0, 0.9); 2],
@@ -198,15 +192,10 @@ impl Mix {
     /// Pick up parameter changes once per buffer; coefficients only change when a value did.
     fn update(&mut self, p: &Params) {
         for c in 0..N {
-            let i = p.ch_eq[c].load(Relaxed);
-            if i != self.ch_idx[c] {
-                self.ch_idx[c] = i;
-                self.ch_chain[c] = [dsp::channel_preset(i); 2];
+            let gains: [f32; 10] = std::array::from_fn(|i| load(&p.ch_eq[c][i]));
+            for e in &mut self.ch_eq[c] {
+                e.set(&gains);
             }
-        }
-        let gains: [f32; 10] = std::array::from_fn(|i| load(&p.eq[i]));
-        for e in &mut self.eq {
-            e.set(&gains);
         }
         let db = load(&p.bass_db);
         if db != self.bass_db {
@@ -677,12 +666,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if locked[c].len() >= 2 {
                         let a = sanitize(locked[c].pop_front().unwrap()) * g;
                         let b = sanitize(locked[c].pop_front().unwrap()) * g;
-                        if mix.ch_idx[c] == 0 {
-                            ch[c] = (a, b);
-                        } else {
-                            let [cl, cr] = &mut mix.ch_chain[c];
-                            ch[c] = (run3(cl, a), run3(cr, b));
-                        }
+                        // flat bands are skipped, a flat preset costs nothing
+                        let [el, er] = &mut mix.ch_eq[c];
+                        ch[c] = (el.run(a), er.run(b));
                     }
                 }
                 // someone talks in Chat: Game, Media and Music step back by 12 dB, Aux stays
@@ -697,8 +683,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     l += a;
                     r += b;
                 }
-                l = mix.bass[0].run(mix.eq[0].run(sanitize(l)));
-                r = mix.bass[1].run(mix.eq[1].run(sanitize(r)));
+                l = mix.bass[0].run(sanitize(l));
+                r = mix.bass[1].run(sanitize(r));
                 if clarity {
                     l = mix.clarity[0].run(l);
                     r = mix.clarity[1].run(r);
