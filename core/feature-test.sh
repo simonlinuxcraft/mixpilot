@@ -10,13 +10,13 @@ mkdir -p "$W/cfg/mixpilot"
 BIN=./target/release/mixpilot-core
 STATE=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/mixpilot/state.json
 FAILS=0
-D= FEED= MEDIA= CHAT= MODS=
+D= FEED= MEDIA= MUSIC= CHAT= MODS=
 
 cleanup() {
-  for p in $FEED $MEDIA $CHAT $D; do kill "$p" 2>/dev/null; done
+  for p in $FEED $MEDIA $MUSIC $CHAT $D; do kill "$p" 2>/dev/null; done
   wait 2>/dev/null
   for m in $MODS; do pactl unload-module "$m" 2>/dev/null; done
-  FEED= MEDIA= CHAT= D= MODS=
+  FEED= MEDIA= MUSIC= CHAT= D= MODS=
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
@@ -115,7 +115,7 @@ module module-remap-source source_name=mp_test_mic master=mp_test_micbus.monitor
 printf "{}" >"$W/cfg/mixpilot/config.json"
 cfg '{"output":"mp_test_out","input":"mp_test_mic","ducking":true,
       "mic":{"gain":100,"mute":false,"noise":"off","agc":false,"gate":false,"voice":"natural","monitor":false},
-      "rules":[{"match":"mp_test_chat","channel":"chat"},{"match":"mp_test_media","channel":"media"}]}'
+      "rules":[{"match":"mp_test_chat","channel":"chat"},{"match":"mp_test_media","channel":"media"},{"match":"mp_test_music","channel":"music"}]}'
 XDG_CONFIG_HOME="$W/cfg" $BIN >"$W/daemon.log" 2>&1 &
 D=$!
 sleep 1.5
@@ -217,6 +217,12 @@ cfg '{"eq":[0,0,0,0,0,0,0,0,0,0]}'
 
 echo "-- automatic sorting"
 check "media tone sits in Media" "$([ "$(links_of mp_test_media)" = "mixpilot_media " ] && echo ok || echo "linked to: $(links_of mp_test_media)")"
+pw-cat -p --target mp_test_out -P '{ node.name=mp_test_music application.name=mp_test_music }' "$W/tone.wav" >/dev/null 2>&1 &
+MUSIC=$!
+sleep 1
+check "music tone sits in Music" "$([ "$(links_of mp_test_music)" = "mixpilot_music " ] && echo ok || echo "linked to: $(links_of mp_test_music)")"
+check "state file meters Music" "$(python3 -c "import json; s=json.load(open('$STATE')); print('ok' if s['levels']['music'][0] > 0.1 else s['levels'])")"
+kill $MUSIC; MUSIC=
 cfg '{"rules":[{"match":"mp_test_media","channel":"aux","user":true},{"match":"mp_test_chat","channel":"chat"}]}'
 sleep 0.5
 check "user rule moves the running app to Aux" "$([ "$(links_of mp_test_media)" = "mixpilot_aux " ] && echo ok || echo "linked to: $(links_of mp_test_media)")"

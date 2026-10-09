@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Music channel: music players like Spotify, Rhythmbox or Amberol get their own channel next to Media, so music can have its own volume and sound. Video players and browsers stay in Media. Existing setups move the music players over on the first start, your own assignments stay as they are
+
 ## 0.0.2 - Push-to-mute and presets
 
 - Push-to-mute: a global key mutes and unmutes the microphone. Switch it on in the microphone tab, the desktop asks for the key in its own dialog (GNOME 48 or newer, KDE Plasma)

@@ -45,7 +45,7 @@ fn core_binary() -> Option<PathBuf> {
 }
 
 /// Must match STATE_PROTO in the core.
-const STATE_PROTO: u64 = 4;
+const STATE_PROTO: u64 = 5;
 
 /// A current core rewrites state.json every 50 ms and reports the protocol this app speaks.
 fn state_fresh() -> bool {

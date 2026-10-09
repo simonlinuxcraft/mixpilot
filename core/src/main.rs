@@ -43,13 +43,15 @@ const FRAME: usize = DenoiseState::FRAME_SIZE;
 const TICK_MS: u64 = 50;
 const RETRY_TICKS: u32 = 40;
 /// Bumped whenever the app needs something new from the core; must match STATE_PROTO in the app.
-const STATE_PROTO: u32 = 4;
+const STATE_PROTO: u32 = 5;
+/// mix channels, see config::CHANNELS
+const N: usize = CHANNELS.len();
 
 /// Values the control side writes and the realtime threads read. f32 stored as bits.
 #[derive(Default)]
 struct Params {
-    gain: [AtomicU32; 4],
-    ch_eq: [AtomicU32; 4],
+    gain: [AtomicU32; N],
+    ch_eq: [AtomicU32; N],
     master: AtomicU32,
     bass_db: AtomicU32,
     limiter: AtomicBool,
@@ -106,10 +108,13 @@ impl Params {
     }
 }
 
-/// Peak meters: 0..8 channels L/R, 8..10 master L/R, 10 microphone processed, 11 microphone input.
+/// Peak meters: channels L/R, then master L/R, microphone processed, microphone input.
 /// The realtime side keeps the maximum, the main loop takes and resets it on every tick.
+const LV_MASTER: usize = 2 * N;
+const LV_MIC: usize = 2 * N + 2;
+const LV_MIC_IN: usize = 2 * N + 3;
 #[derive(Default)]
-struct Levels([AtomicU32; 12]);
+struct Levels([AtomicU32; 2 * N + 4]);
 
 impl Levels {
     fn raise(&self, i: usize, v: f32) {
@@ -118,7 +123,7 @@ impl Levels {
             self.0[i].fetch_max(v.abs().to_bits(), Relaxed);
         }
     }
-    fn take(&self) -> [f32; 12] {
+    fn take(&self) -> [f32; 2 * N + 4] {
         std::array::from_fn(|i| f32::from_bits(self.0[i].swap(0, Relaxed)))
     }
 }
@@ -155,12 +160,12 @@ fn format_pod(channels: u32) -> Vec<u8> {
 
 /// Output mix state, owned by the output stream's realtime callback.
 struct Mix {
-    gains: [Smooth; 4],
+    gains: [Smooth; N],
     master: Smooth,
     duck: Smooth,
     duck_env: Envelope,
-    ch_chain: [[Chain3; 2]; 4],
-    ch_idx: [u32; 4],
+    ch_chain: [[Chain3; 2]; N],
+    ch_idx: [u32; N],
     eq: [Eq10; 2],
     bass: [Biquad; 2],
     bass_db: f32,
@@ -174,12 +179,12 @@ impl Mix {
     fn new() -> Self {
         let flat = dsp::channel_preset(0);
         Self {
-            gains: [Smooth::new(0.0, 20.0); 4],
+            gains: [Smooth::new(0.0, 20.0); N],
             master: Smooth::new(0.0, 20.0),
             duck: Smooth::new(1.0, 200.0),
             duck_env: Envelope::new(400.0),
-            ch_chain: [[flat; 2]; 4],
-            ch_idx: [0; 4],
+            ch_chain: [[flat; 2]; N],
+            ch_idx: [0; N],
             eq: [Eq10::default(), Eq10::default()],
             bass: [Biquad::low_shelf(BASS_FREQ, 0.0); 2],
             bass_db: 0.0,
@@ -192,7 +197,7 @@ impl Mix {
 
     /// Pick up parameter changes once per buffer; coefficients only change when a value did.
     fn update(&mut self, p: &Params) {
-        for c in 0..4 {
+        for c in 0..N {
             let i = p.ch_eq[c].load(Relaxed);
             if i != self.ch_idx[c] {
                 self.ch_idx[c] = i;
@@ -463,6 +468,17 @@ fn fresh(path: &Path, secs: u64) -> bool {
 }
 
 /// Atomic replace so the app never reads half a file.
+fn levels_json(l: &[f32; 2 * N + 4], mic_on: bool) -> serde_json::Value {
+    let mut m = serde_json::Map::new();
+    for (i, ch) in CHANNELS.iter().enumerate() {
+        m.insert(ch.id.into(), serde_json::json!([l[2 * i], l[2 * i + 1]]));
+    }
+    m.insert("master".into(), serde_json::json!([l[LV_MASTER], l[LV_MASTER + 1]]));
+    m.insert("mic".into(), serde_json::json!(if mic_on { l[LV_MIC] } else { -1.0 }));
+    m.insert("mic_in".into(), serde_json::json!(if mic_on { l[LV_MIC_IN] } else { -1.0 }));
+    serde_json::Value::Object(m)
+}
+
 fn write_atomic(path: &Path, data: &[u8]) {
     let tmp = path.with_extension("tmp");
     if std::fs::write(&tmp, data).is_ok() {
@@ -516,7 +532,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // All mix nodes share one driver (node.group) so the rings neither starve nor overflow,
     // and every node shares one link group so WirePlumber never links Mixpilot into itself.
-    let rings: Arc<[Mutex<VecDeque<f32>>; 4]> =
+    let rings: Arc<[Mutex<VecDeque<f32>>; N]> =
         Arc::new(std::array::from_fn(|_| Mutex::new(VecDeque::with_capacity(RING_MAX + 2))));
     let mic_out: Arc<Mutex<VecDeque<f32>>> = Arc::new(Mutex::new(VecDeque::with_capacity(MIC_RING_MAX + 1)));
     let mic_mon: Arc<Mutex<VecDeque<f32>>> = Arc::new(Mutex::new(VecDeque::with_capacity(MIC_RING_MAX + 1)));
@@ -632,9 +648,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let clarity = p.clarity.load(Relaxed);
             let ducking = p.ducking.load(Relaxed);
             let monitor = p.monitor.load(Relaxed);
-            let targets: [f32; 4] = std::array::from_fn(|i| load(&p.gain[i]));
+            let targets: [f32; N] = std::array::from_fn(|i| load(&p.gain[i]));
             let target_master = load(&p.master);
-            let mut locked: [_; 4] = std::array::from_fn(|i| lock(&out_rings[i]));
+            let mut locked: [_; N] = std::array::from_fn(|i| lock(&out_rings[i]));
             // keep app audio at most ~3 cycles behind; anything older is a backlog, not a buffer
             for ring in locked.iter_mut() {
                 let cap = frames * 2 * 3;
@@ -651,11 +667,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 mon_prime.0 = false;
                 false
             };
-            let mut peaks = [0f32; 10];
+            let mut peaks = [0f32; LV_MASTER + 2];
 
             for f in 0..frames {
-                let mut ch = [(0f32, 0f32); 4];
-                for c in 0..4 {
+                let mut ch = [(0f32, 0f32); N];
+                for c in 0..N {
                     let g = mix.gains[c].next(targets[c]);
                     // an underrun plays silence for that channel; drift correction (resampling) only if dropouts show up
                     if locked[c].len() >= 2 {
@@ -669,12 +685,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                 }
-                // someone talks in Chat: Game and Media step back by 12 dB
+                // someone talks in Chat: Game, Media and Music step back by 12 dB, Aux stays
                 let talk = mix.duck_env.run(ch[1].0.abs().max(ch[1].1.abs()));
                 let duck = mix.duck.next(if ducking && talk > 0.01 { 0.25 } else { 1.0 });
                 let (mut l, mut r) = (0.0f32, 0.0f32);
-                for c in 0..4 {
-                    let k = if c == 0 || c == 2 { duck } else { 1.0 };
+                for c in 0..N {
+                    let k = if matches!(c, 0 | 2 | 3) { duck } else { 1.0 };
                     let (a, b) = (ch[c].0 * k, ch[c].1 * k);
                     peaks[c * 2] = peaks[c * 2].max(a.abs());
                     peaks[c * 2 + 1] = peaks[c * 2 + 1].max(b.abs());
@@ -704,8 +720,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     (l, r) = (sanitize(l).clamp(-1.0, 1.0), sanitize(r).clamp(-1.0, 1.0));
                 }
-                peaks[8] = peaks[8].max(l.abs());
-                peaks[9] = peaks[9].max(r.abs());
+                peaks[LV_MASTER] = peaks[LV_MASTER].max(l.abs());
+                peaks[LV_MASTER + 1] = peaks[LV_MASTER + 1].max(r.abs());
                 bytes[f * 8..f * 8 + 4].copy_from_slice(&l.to_le_bytes());
                 bytes[f * 8 + 4..f * 8 + 8].copy_from_slice(&r.to_le_bytes());
             }
@@ -826,8 +842,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (peak, in_peak) = mic_dsp.process(&input[..n], &p, &mut out, monitor.then_some(&mut *mon));
             drop(mon);
             drop(out);
-            lv.raise(10, peak);
-            lv.raise(11, in_peak);
+            lv.raise(LV_MIC, peak);
+            lv.raise(LV_MIC_IN, in_peak);
         })
         .register()?;
 
@@ -1114,11 +1130,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let state = serde_json::json!({
             // the app replaces a running core whose protocol differs (old version after an update)
             "proto": STATE_PROTO,
-            "levels": {
-                "game": [l[0], l[1]], "chat": [l[2], l[3]], "media": [l[4], l[5]], "aux": [l[6], l[7]],
-                "master": [l[8], l[9]], "mic": if mic_on.get() { l[10] } else { -1.0 },
-                "mic_in": if mic_on.get() { l[11] } else { -1.0 },
-            },
+            "levels": levels_json(&l, mic_on.get()),
             "mic_active": mic_on.get(),
             "night_active": nightc.get(),
             "apps": list,

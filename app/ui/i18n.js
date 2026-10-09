@@ -130,7 +130,8 @@ const EN = {
   'unbekannt': 'unknown',
   // automation
   'REGELN': 'RULES',
-  'Media und Game 12 dB leiser, solange im Chat gesprochen wird': 'Media and Game 12 dB quieter while someone talks in Chat',
+  'Game, Media und Musik 12 dB leiser, solange im Chat gesprochen wird': 'Game, Media and Music 12 dB quieter while someone talks in Chat',
+  'Musik': 'Music',
   'Neue Apps einsortieren': 'Sort new apps',
   'Bekannte Apps automatisch in ihren Kanal': 'Known apps go to their channel automatically',
   'Nachtmodus': 'Night mode',
@@ -182,7 +183,7 @@ const EN = {
   'Worüber möchtest du hören?': 'What do you listen on?',
   'Welches Mikrofon nutzt du?': 'Which microphone do you use?',
   'Mit dem System starten, damit alles automatisch im Hintergrund läuft': 'Start with the system so everything runs in the background automatically',
-  'Apps landen automatisch im passenden Kanal, Discord in Chat, Spotify in Media. In Discord und Co. wählst du "Mixpilot Mikrofon" für deine bearbeitete Stimme.': 'Apps land in the right channel automatically, Discord in Chat, Spotify in Media. In Discord and similar apps, pick "Mixpilot Microphone" for your processed voice.',
+  'Apps landen automatisch im passenden Kanal, Discord in Chat, Spotify in Musik, der Browser in Media. In Discord und Co. wählst du "Mixpilot Mikrofon" für deine bearbeitete Stimme.': 'Apps land in the right channel automatically, Discord in Chat, Spotify in Music, the browser in Media. In Discord and similar apps, pick "Mixpilot Microphone" for your processed voice.',
   'Erneut prüfen': 'Check again',
   'Fertig': 'Done',
   'PipeWire: damit Mixpilot Kanäle anlegen, Apps einsortieren und Effekte rechnen kann.': 'PipeWire: so Mixpilot can create channels, sort apps and process effects.',

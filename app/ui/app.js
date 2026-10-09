@@ -11,11 +11,12 @@ const el = (tag, cls, text) => {
 const ICONS = {
   game: 'M6 11h4M8 9v4M15 12h.01M18 10h.01M7 6h10a5 5 0 0 1 4.9 6l-.7 3.6A3 3 0 0 1 16 17l-1.5-1.5h-5L8 17a3 3 0 0 1-5.2-1.4L2.1 12A5 5 0 0 1 7 6z',
   chat: 'M21 12a8 8 0 0 1-11.7 7.1L4 20l1-4.6A8 8 0 1 1 21 12z',
-  media: 'M9 18V5l12-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z',
+  media: 'M3 5h18v12H3zM8 21h8M10 8.5l5 3-5 3z',
+  music: 'M9 18V5l12-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z',
   aux: 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14',
   master: 'M11 5 6 9H2v6h4l5 4V5zM15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14',
 };
-const CHANNELS = [['game', 'Game'], ['chat', 'Chat'], ['media', 'Media'], ['aux', 'Aux']];
+const CHANNELS = [['game', 'Game'], ['chat', 'Chat'], ['media', 'Media'], ['music', t('Musik')], ['aux', 'Aux']];
 const CH_EQ = [['flat', 'Flat'], ['bass', 'Bass'], ['voice', t('Stimme')], ['gaming', 'Gaming'], ['clear', t('Klar')]];
 const EQ_PRESETS = {
   Flat: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -1079,7 +1080,8 @@ function mixerArt(box) {
   strips.append(
     strip('game', 'Game', 88, '-2.2 dB', 'Gaming', 'SuperTuxKart'),
     strip('chat', 'Chat', 100, '0.0 dB', t('Stimme'), 'Discord'),
-    strip('media', 'Media', 78, '-7.8 dB', 'Flat', 'Spotify'),
+    strip('media', 'Media', 78, '-7.8 dB', 'Flat', 'Firefox'),
+    strip('music', t('Musik'), 70, '-9.3 dB', 'Flat', 'Spotify'),
     strip('aux', 'Aux', 60, '-13.3 dB', 'Flat', ''),
     el('div', 'sep'),
     strip('master', 'Master', 68, '68 %'),

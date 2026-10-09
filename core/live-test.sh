@@ -65,8 +65,8 @@ D=$!
 sleep 1.5
 echo "-- daemon"
 kill -0 $D 2>/dev/null && check "running" ok || check "running" "exited: $(cat "$W/daemon.log")"
-n=$(pw-cli ls Node | grep -cE 'node.name = "mixpilot_(game|chat|media|aux)"')
-check "4 channel sinks exist" "$([ "$n" = 4 ] && echo ok || echo "found $n")"
+n=$(pw-cli ls Node | grep -cE 'node.name = "mixpilot_(game|chat|media|music|aux)"')
+check "5 channel sinks exist" "$([ "$n" = 5 ] && echo ok || echo "found $n")"
 check "output linked only to test sink" "$([ "$(outlinks)" = "mixpilot_test_hw " ] && echo ok || echo "linked to: $(outlinks)")"
 
 pw-cat -p --target mixpilot_test_hw -P '{ node.name=mp_test_tone application.name=mp_test_tone }' "$W/tone.wav" >/dev/null 2>&1 &

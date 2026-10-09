@@ -96,7 +96,7 @@ check "alive after garbage configs" "$(alive)"
 echo "-- kill -9"
 kill -9 "$D"; wait "$D" 2>/dev/null; D=
 sleep 1
-left=$(pw-cli ls Node | grep -cE 'node.name = "mixpilot_(game|chat|media|aux|output)"')
+left=$(pw-cli ls Node | grep -cE 'node.name = "mixpilot_(game|chat|media|music|aux|output)"')
 check "nodes gone after kill -9" "$( [ "$left" = 0 ] && echo ok || echo "$left left")"
 check "default sink unchanged" "$( [ "$(pactl get-default-sink)" = "$DEF_SINK" ] && echo ok || echo "now $(pactl get-default-sink)")"
 

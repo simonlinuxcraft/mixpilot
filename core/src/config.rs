@@ -13,10 +13,11 @@ impl ChannelDef {
     }
 }
 
-pub const CHANNELS: [ChannelDef; 4] = [
+pub const CHANNELS: [ChannelDef; 5] = [
     ChannelDef { id: "game", label: "Game" },
     ChannelDef { id: "chat", label: "Chat" },
     ChannelDef { id: "media", label: "Media" },
+    ChannelDef { id: "music", label: "Music" },
     ChannelDef { id: "aux", label: "Aux" },
 ];
 
@@ -100,6 +101,7 @@ pub struct Config {
     pub game: Channel,
     pub chat: Channel,
     pub media: Channel,
+    pub music: Channel,
     pub aux: Channel,
     pub master: f32,
     /// -100 (Chat down) ..= 100 (Game down)
@@ -118,7 +120,7 @@ pub struct Config {
     /// node.name of the microphone, empty = system default source
     pub input: String,
     pub mic: Mic,
-    /// lower Media and Game while someone talks in Chat
+    /// lower Game, Media and Music while someone talks in Chat
     pub ducking: bool,
     pub night: Night,
     /// sort new apps into channels with the built-in rules
@@ -134,6 +136,7 @@ impl Default for Config {
             game: Channel { eq: "gaming".into(), ..Channel::default() },
             chat: Channel { eq: "voice".into(), ..Channel::default() },
             media: Channel::default(),
+            music: Channel::default(),
             aux: Channel::default(),
             master: 100.0,
             chatmix: 0.0,
@@ -163,13 +166,21 @@ impl Default for Config {
                 r("steam", "game"),
                 r("gamescope", "game"),
                 r("obs", "aux"),
-                r("spotify", "media"),
+                r("spotify", "music"),
+                r("rhythmbox", "music"),
+                r("amberol", "music"),
+                r("lollypop", "music"),
+                r("elisa", "music"),
+                r("strawberry", "music"),
+                r("clementine", "music"),
+                r("audacious", "music"),
+                r("tidal", "music"),
+                r("deezer", "music"),
                 r("firefox", "media"),
                 r("chromium", "media"),
                 r("chrome", "media"),
                 r("vlc", "media"),
                 r("mpv", "media"),
-                r("rhythmbox", "media"),
                 r("youtube", "media"),
             ],
         }
@@ -181,8 +192,8 @@ pub fn index_of(list: &[&str], name: &str) -> u32 {
 }
 
 impl Config {
-    pub fn channels(&self) -> [&Channel; 4] {
-        [&self.game, &self.chat, &self.media, &self.aux]
+    pub fn channels(&self) -> [&Channel; CHANNELS.len()] {
+        [&self.game, &self.chat, &self.media, &self.music, &self.aux]
     }
 
     /// The first matching rule decides. Built-in rules are skipped while automatic sorting is off.
@@ -216,16 +227,44 @@ pub fn load(path: &Path) -> Result<Config, String> {
 
 /// Only a JSON object counts; serde would also accept `[]` and silently reset every fader.
 pub fn parse(text: &str) -> Result<Config, String> {
-    let v: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    let mut v: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
     if !v.is_object() {
         return Err("not a JSON object".into());
     }
+    migrate(&mut v);
     serde_json::from_value(v).map_err(|e| e.to_string())
+}
+
+/// Configs from before the Music channel carry their own copy of the old built-in rules, which
+/// would keep Spotify in Media. Swap in the current ones; user rules stay in front. Works on the
+/// raw JSON so keys only the app knows (own presets, seen_version) survive a write back.
+fn migrate(v: &mut serde_json::Value) -> bool {
+    if v.get("music").is_some() {
+        return false;
+    }
+    let mut rules: Vec<serde_json::Value> =
+        v["rules"].as_array().map(|r| r.iter().filter(|r| r["user"] == true).cloned().collect()).unwrap_or_default();
+    rules.extend(Config::default().rules.iter().filter_map(|r| serde_json::to_value(r).ok()));
+    v["rules"] = rules.into();
+    v["music"] = serde_json::to_value(Channel::default()).unwrap_or_default();
+    true
+}
+
+/// Writes the migrated config back once, so the app reads and keeps the new rules too.
+fn migrate_file(path: &Path) {
+    let Some(mut v) = std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()) else {
+        return;
+    };
+    if v.is_object() && migrate(&mut v) {
+        crate::write_atomic(path, &serde_json::to_vec_pretty(&v).unwrap_or_default());
+        crate::log!("config: added the Music channel and its rules");
+    }
 }
 
 /// A broken file is reported and left untouched, never overwritten with defaults.
 pub fn load_or_create(path: &Path) -> Config {
     if path.exists() {
+        migrate_file(path);
         return load(path).unwrap_or_else(|e| {
             crate::log!("{} unreadable ({e}), using defaults", path.display());
             Config::default()
@@ -252,6 +291,7 @@ mod tests {
         // Discord's voice stream reports Chromium-ish names but the Discord binary
         assert_eq!(c.channel_for(&[Some("Discord"), Some("Chromium"), None]), Some(1));
         assert_eq!(c.channel_for(&[Some("firefox"), None, None]), Some(2));
+        assert_eq!(c.channel_for(&[Some("spotify"), None, None]), Some(3));
         assert_eq!(c.channel_for(&[Some("wine64-preloader"), None, None]), Some(0));
         assert_eq!(c.channel_for(&[Some("gnome-shell"), None, None]), None);
     }
@@ -260,13 +300,30 @@ mod tests {
     fn user_rules_win_and_survive_autopilot_off() {
         let mut c = Config::default();
         c.rules.insert(0, Rule { pattern: "firefox".into(), channel: "aux".into(), user: true });
-        assert_eq!(c.channel_for(&[Some("firefox"), None, None]), Some(3));
+        assert_eq!(c.channel_for(&[Some("firefox"), None, None]), Some(4));
         c.auto = false;
-        assert_eq!(c.channel_for(&[Some("firefox"), None, None]), Some(3));
+        assert_eq!(c.channel_for(&[Some("firefox"), None, None]), Some(4));
         assert_eq!(c.channel_for(&[Some("discord"), None, None]), None);
         c.auto = true;
         c.auto_route = false;
         assert_eq!(c.channel_for(&[Some("spotify"), None, None]), None);
+    }
+
+    #[test]
+    fn old_config_gets_the_music_rules_and_keeps_user_rules_and_unknown_keys() {
+        let mut v: serde_json::Value = serde_json::from_str(
+            r#"{"eq_presets":{"Mine":[1,0,0,0,0,0,0,0,0,0]},
+                "rules":[{"match":"spotify","channel":"aux","user":true},{"match":"rhythmbox","channel":"media"}]}"#,
+        )
+        .unwrap();
+        assert!(migrate(&mut v));
+        assert!(!migrate(&mut v), "runs once");
+        assert_eq!(v["eq_presets"]["Mine"][0], 1);
+        let c: Config = serde_json::from_value(v).unwrap();
+        assert_eq!(c.channel_for(&[Some("spotify"), None, None]), Some(4), "user rule still wins");
+        assert_eq!(c.channel_for(&[Some("rhythmbox"), None, None]), Some(3));
+        assert_eq!(c.channel_for(&[Some("firefox"), None, None]), Some(2));
+        assert_eq!(parse(r#"{"rules":[{"match":"spotify","channel":"media"}]}"#).unwrap().channel_for(&[Some("spotify"), None, None]), Some(3));
     }
 
     #[test]

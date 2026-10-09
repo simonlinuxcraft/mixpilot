@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <img src=".github/screenshots/mixer.png" width="820" alt="Mixpilot mixer with Game, Chat, Media and Aux channels">
+  <img src=".github/screenshots/mixer.png" width="820" alt="Mixpilot mixer with Game, Chat, Media, Music and Aux channels">
 </p>
 
 Mixpilot sorts your apps into four channels with their own faders, cleans up your
@@ -56,7 +56,7 @@ Needs PipeWire with WirePlumber, the default on most current distributions
 
 **Mixer**
 
-- Four channels: Game, Chat, Media and Aux, each with fader, meter, mute and a quick EQ preset
+- Five channels: Game, Chat, Media, Music and Aux, each with fader, meter, mute and a quick EQ preset
 - New apps land in the right channel automatically. Move one by hand and Mixpilot remembers it
 - ChatMix: one slider for the balance between game and voice chat
 - Master is your output device's own volume, the same one the volume keys change
@@ -83,7 +83,7 @@ Needs PipeWire with WirePlumber, the default on most current distributions
 **Automation**
 
 - Autopilot switch in the title bar: on means sorting, ducking and night mode run by themselves
-- Ducking: Media and Game get 12 dB quieter while someone talks in Chat
+- Ducking: Game, Media and Music get 12 dB quieter while someone talks in Chat
 - Night mode by time of day
 - Starts with the system and stays in the tray (open, Autopilot, mute microphone, quit)
 
