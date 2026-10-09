@@ -148,19 +148,35 @@ fn get_config() -> Result<Value, String> {
     if v.is_object() { Ok(v) } else { Err("config is not a JSON object".into()) }
 }
 
-/// Write to a temp file and rename, so the core never reads a half-written file.
-/// Read-modify-write for the tray menu toggles.
+// The window, the tray and the push-to-mute thread all write the same file.
+static CONFIG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Read-modify-write for the tray menu toggles and the push-to-mute key.
 fn update_config(f: impl FnOnce(&mut Value)) -> Result<(), String> {
+    let _lock = CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut cfg = get_config()?;
     f(&mut cfg);
-    set_config(cfg)
+    write_config(&cfg)
 }
 
+/// The window sends its whole copy. It shows the microphone mute but never sets it, the tray and
+/// the push-to-mute key own it, so the value on disk wins over a copy that may be a second old.
 #[tauri::command]
-fn set_config(cfg: Value) -> Result<(), String> {
+fn set_config(mut cfg: Value) -> Result<(), String> {
     if !cfg.is_object() {
         return Err("config must be a JSON object".into());
     }
+    let _lock = CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(mute) = get_config().ok().and_then(|c| c.pointer("/mic/mute").cloned()) {
+        if cfg["mic"].is_object() {
+            cfg["mic"]["mute"] = mute;
+        }
+    }
+    write_config(&cfg)
+}
+
+/// Write to a temp file and rename, so the core never reads a half-written file.
+fn write_config(cfg: &Value) -> Result<(), String> {
     let path = config_path();
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, serde_json::to_vec_pretty(&cfg).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
@@ -690,6 +706,12 @@ fn toggle_mic_mute() {
     set_mic_mute(|on| !on);
 }
 
+/// The window's way out of a mute when there is neither a tray nor a push-to-mute key.
+#[tauri::command]
+fn unmute_mic() {
+    set_mic_mute(|_| false);
+}
+
 #[tauri::command]
 fn hotkey_status() -> hotkey::Status {
     hotkey::status()
@@ -792,6 +814,7 @@ fn main() {
             setup_check,
             app_info,
             hotkey_status,
+            unmute_mic,
             set_hotkey,
             change_hotkey,
             quit_app

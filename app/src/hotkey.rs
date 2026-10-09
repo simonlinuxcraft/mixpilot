@@ -70,6 +70,17 @@ pub fn start(restore: bool, on_press: fn()) {
             }
             true
         });
+        // the key changed or was removed in the desktop's own settings
+        let changed = MatchRule::new_signal(IFACE, "ShortcutsChanged");
+        let _ = c.add_match(changed, |(_, list): (Path, Vec<(String, PropMap)>), _, _| {
+            if let Some((_, props)) = list.iter().find(|(id, _)| id == ID) {
+                let trigger = props.get("trigger_description").and_then(|v| v.0.as_str()).unwrap_or_default().to_string();
+                let mut st = STATUS.lock().unwrap();
+                st.on = st.on && !trigger.is_empty();
+                st.trigger = trigger;
+            }
+            true
+        });
         let mut session = None;
         if restore {
             if let Err(e) = bind(&c, &mut session) {

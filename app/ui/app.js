@@ -149,8 +149,12 @@ const change = (fn) => () => { fn(); paintAll(); save(); };
 
 // The tray menu writes "auto" and "mic.mute" into the same file. Take them over, otherwise the next
 // save from this window would silently undo a mute made in the tray.
+let refreshHotkey = async () => {};
 async function pollConfig() {
-  if (!cfg || document.hidden || Date.now() - lastSave < 500) return;
+  if (!cfg || document.hidden) return;
+  // the desktop may answer late at login, and the key can change in the desktop's own settings
+  if (tab === 'mic') refreshHotkey();
+  if (Date.now() - lastSave < 500) return;
   const c = await invoke('get_config').catch(() => null);
   if (!c || Date.now() - lastSave < 500) return;
   const auto = c.auto ?? true;
@@ -492,21 +496,26 @@ function buildSound() {
       if (document.activeElement !== s) s.value = cfg.eq[i];
     });
   });
-  // LED columns around an amber zero row, three per band, the outer two blend into the neighbours.
-  // A square-root scale so +2 dB already shows while +12 dB still fits; a dim segment marks the half step.
-  const grid = ledColumns($('eq-grid'), 30, 9);
-  painters.push(() => grid.forEach((segs, k) => {
+  const paintGrid = eqLeds($('eq-grid'));
+  painters.push(() => paintGrid(cfg.eq));
+}
+
+// LED columns around an amber zero row, three per band, the outer two blend into the neighbours.
+// A square-root scale so +2 dB already shows while +12 dB still fits; a dim segment marks the half step.
+function eqLeds(parent) {
+  const grid = ledColumns(parent, 30, 9);
+  return (eq) => grid.forEach((segs, k) => {
     const x = (k + 0.5) / 3 - 0.5;
     const b = Math.max(0, Math.min(9, Math.floor(x)));
     const f = Math.max(0, Math.min(1, x - b));
-    const v = cfg.eq[b] * (1 - f) + cfg.eq[Math.min(9, b + 1)] * f;
+    const v = eq[b] * (1 - f) + eq[Math.min(9, b + 1)] * f;
     const n = Math.sign(v) * 4 * Math.sqrt(Math.abs(v) / 12);
     segs.forEach((s, i) => {
       const h = 4 - i;
       const d = Math.abs(h);
       s.className = h === 0 ? 'mid' : Math.sign(h) !== Math.sign(n) ? '' : d <= Math.abs(n) ? 'low' : d - 0.5 <= Math.abs(n) ? 'low dim' : '';
     });
-  }));
+  });
 }
 
 // ---------- microphone ----------
@@ -538,12 +547,22 @@ function buildMic() {
       : s.on ? t('Einmal drücken stumm, nochmal drücken wieder an. Auch im Spiel.')
       : t('Eine Taste schaltet das Mikrofon stumm und wieder an, egal welches Fenster vorne ist.');
   };
-  const refreshHotkey = () => invoke('hotkey_status').then(showHotkey).catch(() => showHotkey({ available: false, on: false, trigger: '' }));
+  refreshHotkey = () => invoke('hotkey_status').then((s) => {
+    if (hkBusy) return;
+    showHotkey(s);
+    // bound while the window was closed: remember it for the next start
+    if (s.on && !cfg.mic_hotkey) {
+      cfg.mic_hotkey = true;
+      save();
+    }
+  }).catch(() => showHotkey({ available: false, on: false, trigger: '' }));
   const hotkeyCall = async (cmd, args) => {
+    if (hkBusy) return;
     hkBusy = true;
-    await refreshHotkey();
+    showHotkey({ available: true, on: hkOn.getAttribute('aria-checked') === 'true', trigger: hk.textContent });
     const s = await invoke(cmd, args).catch((e) => (showError(e), null));
     hkBusy = false;
+    if (s) showHotkey(s);
     if (s && cfg.mic_hotkey !== s.on) {
       cfg.mic_hotkey = s.on;
       save();
@@ -553,6 +572,11 @@ function buildMic() {
   hkOn.addEventListener('click', () => hotkeyCall('set_hotkey', { on: hkOn.getAttribute('aria-checked') !== 'true' }));
   hk.addEventListener('click', () => hotkeyCall('change_hotkey'));
   refreshHotkey();
+  $('mic-state').addEventListener('click', async () => {
+    await invoke('unmute_mic').catch(showError);
+    cfg.mic.mute = false;
+    paintAll();
+  });
   $('make-default').addEventListener('click', async () => {
     // pin the real microphone first, otherwise "system default" would point Mixpilot at itself
     if (!cfg.input && devices.default_source && devices.default_source !== 'mixpilot_mic') {
@@ -759,6 +783,7 @@ async function tick() {
   setMicMeter(micLevel);
   setMicInMeter(micInLevel);
   $('mic-state').textContent = !s.mic_active ? t('Mikrofon aus') : cfg.mic.mute ? t('stumm') : t('aktiv');
+  $('mic-state').disabled = !cfg.mic.mute;
   paintEvents(s.events || []);
   apps = s.apps || [];
   paintApps();
@@ -898,76 +923,153 @@ function headLeds(parent, n = 4, rows = 7) {
   });
 }
 
+// The pictures are the real interface in miniature: same markup classes and styles, scaled down,
+// and inert so nothing in them can be clicked. A transform and not zoom, WebKit keeps a minimum
+// font size under zoom and the text would overflow.
+function mini(box, scale, width, cls = 'card') {
+  const stage = el('div', 'mini-ui');
+  stage.inert = true;
+  stage.dataset.scale = scale;
+  stage.style.width = `${width * scale}px`;
+  const root = el('div', cls);
+  Object.assign(root.style, { width: `${width}px`, transform: `scale(${scale})`, transformOrigin: '0 0' });
+  stage.append(root);
+  box.append(stage);
+  return root;
+}
+
+// a transform does not shrink the layout box, so the stage gets its height once the dialog is shown
+function fitMinis() {
+  document.querySelectorAll('.mini-ui').forEach((s) => (s.style.height = `${s.firstElementChild.offsetHeight * s.dataset.scale}px`));
+}
+
 function eqArt(box) {
-  const grid = el('div', 'leds eqleds');
-  const chip = el('span', 'news-chip');
-  box.append(grid, chip);
-  const cols = ledColumns(grid, 10, 9);
-  const shapes = [['Flat', EQ_PRESETS.Flat], ['Bass', EQ_PRESETS.Bass], ['Stimme', EQ_PRESETS.Stimme], ['Mein Kopfhörer', [6, 5, 3, 0, -2, -2, 1, 4, 3, 1], true]];
+  const card = mini(box, 0.5, 600);
+  const name = el('span', 'muted');
+  const title = el('span', 'title', 'Equalizer ');
+  title.append(name);
+  const chips = el('div', 'chips');
+  const shapes = [['Flat', EQ_PRESETS.Flat], ['Bass', EQ_PRESETS.Bass], ['Stimme', EQ_PRESETS.Stimme], ['Mein Kopfhörer', [6, 5, 3, 0, -2, -2, 1, 4, 3, 1]]];
+  const btns = shapes.map(([n]) => chips.appendChild(el('button', null, t(n))));
+  const head = el('div', 'card-head wrap');
+  head.append(title, chips);
+  const grid = el('div', 'eqgrid');
+  card.append(head, grid);
+  const paint = eqLeds(grid);
   const cur = Array(10).fill(0);
-  let n = 0;
+  let n = -1;
   let tick = 0;
   return () => {
     if (tick++ % 26 === 0) {
-      const [name, , own] = shapes[n];
-      chip.textContent = t(name);
-      chip.classList.toggle('own', !!own);
       n = (n + 1) % shapes.length;
+      name.textContent = t(shapes[n][0]);
+      btns.forEach((b, i) => b.setAttribute('aria-pressed', String(i === n)));
     }
-    const target = shapes[(n + shapes.length - 1) % shapes.length][1];
-    cols.forEach((segs, c) => {
-      // one segment per step towards the preset, bipolar around the middle row like the EQ curve
-      const want = Math.max(-4, Math.min(4, Math.round(target[c] / 1.5)));
-      cur[c] += Math.sign(want - cur[c]);
-      segs.forEach((s, i) => {
-        const h = 4 - i;
-        s.className = h === 0 ? 'mid' : (h > 0 && h <= cur[c]) || (h < 0 && h >= cur[c]) ? 'low' : '';
-      });
-    });
+    // 1 dB per step, like dragging the band sliders
+    shapes[n][1].forEach((v, i) => (cur[i] += Math.sign(v - cur[i])));
+    paint(cur);
   };
 }
 
-// a voice on the meter, the key press cuts it
+// the push-to-mute part of the microphone tab: each key press flips aktiv and stumm
 function muteArt(box) {
-  const meter = el('div', 'hmeter news-meter');
-  const set = makeSegments(meter, 16);
-  const key = el('span', 'news-key', 'Pause');
-  const chip = el('span', 'news-chip');
-  const row = el('div', 'news-keyrow');
-  row.append(key, chip);
-  box.append(meter, row);
+  const card = mini(box, 0.66, 400);
+  const state = el('button', 'mono mic-state');
+  const head = el('div', 'card-head');
+  head.append(el('span', 'label', t('MIKROFON')), state);
+  const meter = el('div', 'hmeter');
+  const set = makeSegments(meter, 24);
+  const row = el('div', 'meter-row');
+  row.append(el('span', 'meter-label', t('Nach Bearbeitung')), meter);
+  const sw = el('button', 'switch');
+  sw.setAttribute('aria-checked', 'true');
+  sw.append(el('span'));
+  const ptm = el('div', 'card-head line');
+  ptm.append(el('span', 'title small', 'Push-to-Mute'), sw);
+  const key = el('button', 'btn small', t('Strg+Alt+M'));
+  const keyRow = el('div', 'card-head');
+  keyRow.append(el('span', 'title small', t('Taste')), key);
+  card.append(head, row, ptm, keyRow);
   let tick = 0;
   let muted = true;
-  let level = 0.5;
+  let level = 0.6;
   return () => {
     const phase = tick++ % 40;
     if (phase === 0) {
       muted = !muted;
-      key.classList.add('down');
-      chip.textContent = muted ? t('stumm') : t('an');
-      chip.classList.toggle('muted', muted);
+      state.textContent = muted ? t('stumm') : t('aktiv');
+      state.disabled = !muted;
     }
-    if (phase === 3) key.classList.remove('down');
-    level = Math.max(0.15, Math.min(0.85, level + (Math.random() - 0.45) * 0.3));
+    key.classList.toggle('pressed', phase < 3);
+    level = Math.max(0.35, Math.min(0.85, level + (Math.random() - 0.45) * 0.2));
     set(muted ? 0 : level);
   };
 }
 
+// the mixer strips as they are in the mixer tab, meters moving
 function mixerArt(box) {
-  const grid = el('div', 'leds mixleds');
-  box.append(grid);
-  return headLeds(grid, 5);
+  const strips = mini(box, 0.33, 800, 'strips');
+  const steps = [];
+  const strip = (id, label, vol, val, eq, app) => {
+    const master = id === 'master';
+    const root = el('div', master ? 'strip master' : 'strip');
+    const head = el('div', 'strip-head');
+    head.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[id]}"></path></svg>`;
+    head.append(el('span', 'strip-name', label), el('span', 'dot on'));
+    const meter = el('div', 'meter');
+    const cl = el('div', 'col');
+    const cr = el('div', 'col');
+    meter.append(cl, cr);
+    const setL = makeSegments(cl, 20);
+    const setR = makeSegments(cr, 20);
+    const fader = el('input', 'fader');
+    Object.assign(fader, { type: 'range', min: 0, max: 100, value: vol });
+    const fwrap = el('div', 'fwrap');
+    fwrap.append(fader);
+    const body = el('div', 'strip-body');
+    body.append(meter, fwrap);
+    const value = el('input', 'num value');
+    value.value = val;
+    const btns = el('div', 'btns');
+    btns.append(el('button', 'mute', t('STUMM')));
+    root.append(head, body, value, btns);
+    if (master) root.append(el('p', 'hint', t('Systemlautstärke deines Ausgabegeräts')));
+    else {
+      const chip = el('button', 'eqchip');
+      chip.append(el('b', null, 'EQ'), el('span', null, eq));
+      btns.append(chip);
+      const apps = el('div', 'appchips');
+      if (app) apps.append(el('span', null, app));
+      root.append(apps);
+    }
+    let l = 0.4 + Math.random() * 0.4;
+    steps.push(() => {
+      l = Math.max(0.25, Math.min(0.95, l + (Math.random() - 0.5) * 0.12));
+      setL(l);
+      setR(Math.max(0, l - 0.04));
+    });
+    return root;
+  };
+  strips.append(
+    strip('game', 'Game', 88, '-2.2 dB', 'Gaming', 'SuperTuxKart'),
+    strip('chat', 'Chat', 100, '0.0 dB', t('Stimme'), 'Discord'),
+    strip('media', 'Media', 78, '-7.8 dB', 'Flat', 'Spotify'),
+    strip('aux', 'Aux', 60, '-13.3 dB', 'Flat', ''),
+    el('div', 'sep'),
+    strip('master', 'Master', 68, '68 %'),
+  );
+  return () => steps.forEach((s) => s());
 }
 
 const NEWS_ART = { eq: eqArt, mute: muteArt, mixer: mixerArt };
 let newsTimer = null;
 
-function openNews(entry, version) {
+function openNews(entry) {
   $('news-leds-l').replaceChildren();
   $('news-leds-r').replaceChildren();
   const steps = [headLeds($('news-leds-l')), headLeds($('news-leds-r'))];
   $('news-logo').replaceChildren(document.querySelector('.brand svg').cloneNode(true));
-  $('news-version').textContent = version ? t('Version {0}: {1}', version, t(entry.title)) : t(entry.title);
+  $('news-version').textContent = entry.version ? t('Version {0}: {1}', entry.version, t(entry.title)) : t(entry.title);
   const list = $('news-items');
   list.replaceChildren();
   for (const it of entry.items) {
@@ -989,6 +1091,7 @@ function openNews(entry, version) {
   clearInterval(newsTimer);
   if (!matchMedia('(prefers-reduced-motion: reduce)').matches) newsTimer = setInterval(step, 70);
   $('news').hidden = false;
+  fitMinis();
   $('news').firstElementChild.focus();
 }
 
@@ -1001,7 +1104,7 @@ function closeNews() {
 async function showNews() {
   const a = await invoke('app_info').catch(() => null);
   const entry = NEWS.find((n) => n.version === a?.version) || NEWS[0];
-  openNews(entry, entry.version && a?.version);
+  openNews(entry);
 }
 
 async function newsAfterUpdate() {
@@ -1010,7 +1113,7 @@ async function newsAfterUpdate() {
   cfg.seen_version = a.version;
   save();
   const entry = NEWS.find((n) => n.version === a.version);
-  if (entry) openNews(entry, a.version);
+  if (entry) openNews(entry);
 }
 
 // ---------- start ----------
@@ -1087,10 +1190,12 @@ async function init() {
   for (const [id, label] of CHANNELS) box.append(strip(id, label, false));
   box.append(el('div', 'sep'), strip('master', 'Master', true));
   // a rotated range keeps its horizontal width, so the fader length follows the strip height by hand
-  new ResizeObserver(() => box.querySelectorAll('.fwrap').forEach((w) => {
+  const fit = new ResizeObserver((entries) => entries.forEach(({ target: w }) => {
     const h = w.clientHeight;
     Object.assign(w.firstElementChild.style, { width: `${h}px`, left: `${(44 - h) / 2}px`, top: `${(h - 44) / 2}px` });
-  })).observe(box);
+  }));
+  // each wrapper on its own: app chips change a strip's inner height while #strips stays the same
+  box.querySelectorAll('.fwrap').forEach((w) => fit.observe(w));
   bindRange('chatmix', () => cfg.chatmix, (v) => (cfg.chatmix = v));
   painters.push(paintCardsMixer);
   buildSound();
