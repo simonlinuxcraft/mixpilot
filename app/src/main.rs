@@ -248,19 +248,33 @@ fn mic_test_record() -> Result<(), String> {
     if MIC_TEST.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return Err("Der Mikrofon-Test läuft schon".into());
     }
-    let file = mic_test_file();
-    // timeout ends the recording with SIGINT (pw-record then finishes the file header), also when
-    // Mixpilot quits during the five seconds
-    let status = Command::new("timeout")
-        .args(["-s", "INT", "5", "pw-record", "--target", "mixpilot_mic", "--rate", "48000", "--channels", "1"])
-        .arg(&file)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+    let result = record_five_seconds(&mic_test_file());
     MIC_TEST.store(false, std::sync::atomic::Ordering::SeqCst);
-    // 124: stopped by timeout, the normal end; anything earlier means pw-record failed
-    let stopped = status.is_ok_and(|s| s.code() == Some(124));
-    if stopped && std::fs::metadata(&file).is_ok_and(|m| m.len() > 44) { Ok(()) } else { Err("Aufnahme fehlgeschlagen".into()) }
+    result
+}
+
+// not via timeout(1): the snap's AppArmor profile refuses to run /usr/bin/timeout
+fn record_five_seconds(file: &std::path::Path) -> Result<(), String> {
+    let mut cmd = Command::new("pw-record");
+    cmd.args(["--target", "mixpilot_mic", "--rate", "48000", "--channels", "1"]).arg(file).stdout(Stdio::null()).stderr(Stdio::null());
+    // the kernel sends SIGINT when Mixpilot ends, so a quit during the five seconds stops the recording
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGINT);
+            Ok(())
+        });
+    }
+    let mut rec = cmd.spawn().map_err(|e| format!("pw-record: {e}"))?;
+    for _ in 0..50 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if let Ok(Some(_)) = rec.try_wait() {
+            return Err("Aufnahme fehlgeschlagen".into());
+        }
+    }
+    // SIGINT lets pw-record finish the file header
+    unsafe { libc::kill(rec.id() as i32, libc::SIGINT) };
+    let _ = rec.wait();
+    if std::fs::metadata(file).is_ok_and(|m| m.len() > 44) { Ok(()) } else { Err("Aufnahme fehlgeschlagen".into()) }
 }
 
 #[tauri::command(async)]
