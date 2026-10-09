@@ -196,7 +196,7 @@
   </div>
 </div>
 <div id="support-info" class="overlay" hidden>
-  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="support-title">
+  <div class="dialog" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="support-title">
     <h1 id="support-title">Mixpilot unterstützen</h1>
     <p>Mixpilot ist kostenlos. Eine Spende ist komplett freiwillig und schaltet nichts frei, alle Funktionen sind auch ohne nutzbar.</p>
     <p>Wenn dir die App hilft und du etwas zurückgeben möchtest, geht das über Ko-fi. Das öffnet sich in deinem Browser, bezahlt wird direkt bei Ko-fi bzw. PayPal. Mixpilot sieht keine Zahlungsdaten.</p>
@@ -208,7 +208,7 @@
   </div>
 </div>
 <div id="about" class="overlay" hidden>
-  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="about-title">
+  <div class="dialog" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="about-title">
     <h1 id="about-title">Über Mixpilot</h1>
     <p class="mono" id="about-version"></p>
     <div class="about-info">
@@ -227,7 +227,27 @@
     <div class="actions">
       <button id="quit" class="btn" title="Beendet auch den Audio-Kern. Apps spielen dann wieder direkt über dein Gerät.">Mixpilot beenden</button>
       <span class="spacer"></span>
+      <button id="about-news" class="btn">Was ist neu</button>
       <button id="about-close" class="btn primary">Schließen</button>
+    </div>
+  </div>
+</div>
+<div id="news" class="overlay" hidden>
+  <div class="dialog news" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="news-title">
+    <div class="news-head">
+      <div class="leds" id="news-leds-l" aria-hidden="true"></div>
+      <div class="news-brand">
+        <div id="news-logo" aria-hidden="true"></div>
+        <div>
+          <h1 id="news-title">Was ist neu</h1>
+          <p id="news-version"></p>
+        </div>
+      </div>
+      <div class="leds" id="news-leds-r" aria-hidden="true"></div>
+    </div>
+    <div class="news-body">
+      <div id="news-items"></div>
+      <div class="actions"><button id="news-close" class="btn primary">Alles klar</button></div>
     </div>
   </div>
 </div>

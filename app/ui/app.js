@@ -802,6 +802,125 @@ async function runChecks() {
   $('setup-done').title = core ? '' : t('Geht, sobald der Audio-Kern läuft');
 }
 
+// ---------- what's new ----------
+// Shown once after an update. `version` stays null until the release that ships it sets it.
+const NEWS = [
+  {
+    version: null,
+    title: 'Eigene EQ-Presets',
+    items: [{
+      art: 'eq',
+      tab: 'sound',
+      title: 'Eigene EQ-Presets',
+      text: 'Stell den Equalizer nach deinem Geschmack ein und speichere die Kurve unter eigenem Namen. Bis zu vier eigene Presets, ein Klick holt sie zurück.',
+    }],
+  },
+];
+
+// LED columns like the level meters. Each art returns a step function the dialog calls every 70 ms.
+function ledColumns(parent, cols, rows) {
+  parent.style.setProperty('--rows', rows);
+  return Array.from({ length: cols }, () => {
+    const col = el('div', 'ledcol');
+    const segs = Array.from({ length: rows }, () => col.appendChild(el('i')));
+    parent.append(col);
+    return segs;
+  });
+}
+
+function headLeds(parent) {
+  const cols = ledColumns(parent, 4, 9);
+  const level = cols.map(() => Math.random() * 9);
+  return () => cols.forEach((segs, c) => {
+    level[c] = Math.max(1, Math.min(9, level[c] + (Math.random() - 0.5) * 3));
+    // segments run bottom to top: blue, the top three amber
+    segs.forEach((s, i) => (s.className = 8 - i < level[c] ? (8 - i >= 6 ? 'mid' : 'low') : ''));
+  });
+}
+
+function eqArt(box) {
+  const grid = el('div', 'leds eqleds');
+  const chip = el('span', 'news-chip');
+  box.append(grid, chip);
+  const cols = ledColumns(grid, 10, 9);
+  const shapes = [['Flat', EQ_PRESETS.Flat], ['Bass', EQ_PRESETS.Bass], ['Stimme', EQ_PRESETS.Stimme], ['Mein Kopfhörer', [6, 5, 3, 0, -2, -2, 1, 4, 3, 1], true]];
+  const cur = Array(10).fill(0);
+  let n = 0;
+  let tick = 0;
+  return () => {
+    if (tick++ % 26 === 0) {
+      const [name, , own] = shapes[n];
+      chip.textContent = t(name);
+      chip.classList.toggle('own', !!own);
+      n = (n + 1) % shapes.length;
+    }
+    const target = shapes[(n + shapes.length - 1) % shapes.length][1];
+    cols.forEach((segs, c) => {
+      // one segment per step towards the preset, bipolar around the middle row like the EQ curve
+      const want = Math.max(-4, Math.min(4, Math.round(target[c] / 1.5)));
+      cur[c] += Math.sign(want - cur[c]);
+      segs.forEach((s, i) => {
+        const h = 4 - i;
+        s.className = h === 0 ? 'mid' : (h > 0 && h <= cur[c]) || (h < 0 && h >= cur[c]) ? 'low' : '';
+      });
+    });
+  };
+}
+
+const NEWS_ART = { eq: eqArt };
+let newsTimer = null;
+
+function openNews(entry, version) {
+  $('news-leds-l').replaceChildren();
+  $('news-leds-r').replaceChildren();
+  const steps = [headLeds($('news-leds-l')), headLeds($('news-leds-r'))];
+  $('news-logo').replaceChildren(document.querySelector('.brand svg').cloneNode(true));
+  $('news-version').textContent = version ? t('Version {0}: {1}', version, t(entry.title)) : t(entry.title);
+  const list = $('news-items');
+  list.replaceChildren();
+  for (const it of entry.items) {
+    const row = el('div', 'news-item');
+    const art = el('div', 'news-art');
+    if (NEWS_ART[it.art]) steps.push(NEWS_ART[it.art](art));
+    const text = el('div', 'news-text');
+    const go = el('button', 'btn small', t('Ansehen'));
+    go.addEventListener('click', () => {
+      closeNews();
+      document.querySelector(`.tab[data-tab="${it.tab}"]`)?.click();
+    });
+    text.append(el('h2', null, t(it.title)), el('p', 'hint', t(it.text)), go);
+    row.append(art, text);
+    list.append(row);
+  }
+  const step = () => steps.forEach((s) => s());
+  step();
+  clearInterval(newsTimer);
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) newsTimer = setInterval(step, 70);
+  $('news').hidden = false;
+  $('news').firstElementChild.focus();
+}
+
+function closeNews() {
+  clearInterval(newsTimer);
+  $('news').hidden = true;
+}
+
+// The about dialog shows the notes of this version, or the newest ones in a development build.
+async function showNews() {
+  const a = await invoke('app_info').catch(() => null);
+  const entry = NEWS.find((n) => n.version === a?.version) || NEWS[0];
+  openNews(entry, entry.version && a?.version);
+}
+
+async function newsAfterUpdate() {
+  const a = await invoke('app_info').catch(() => null);
+  if (!a || cfg.seen_version === a.version) return;
+  cfg.seen_version = a.version;
+  save();
+  const entry = NEWS.find((n) => n.version === a.version);
+  if (entry) openNews(entry, a.version);
+}
+
 // ---------- start ----------
 async function loadConfig(tries) {
   for (let i = 0; i < tries; i++) {
@@ -819,7 +938,7 @@ function bindChrome() {
   $('win-max').addEventListener('click', () => win?.toggleMaximize());
   $('win-close').addEventListener('click', () => win?.close());
   const info = $('support-info');
-  $('support').addEventListener('click', () => { info.hidden = false; $('support-go').focus(); });
+  $('support').addEventListener('click', () => { info.hidden = false; info.firstElementChild.focus(); });
   $('support-cancel').addEventListener('click', () => { info.hidden = true; });
   info.addEventListener('click', (e) => { if (e.target === info) info.hidden = true; });
   info.addEventListener('keydown', (e) => { if (e.key === 'Escape') info.hidden = true; });
@@ -838,7 +957,7 @@ function bindChrome() {
     }
     $('licenses-box').open = false;
     about.hidden = false;
-    $('about-close').focus();
+    about.firstElementChild.focus();
   });
   $('about-close').addEventListener('click', closeAbout);
   about.addEventListener('click', (e) => { if (e.target === about) closeAbout(); });
@@ -850,6 +969,11 @@ function bindChrome() {
     $('licenses').textContent = await fetch('third-party-licenses.txt').then((r) => r.text()).catch(() => '');
   });
   $('quit').addEventListener('click', () => invoke('quit_app'));
+  $('about-news').addEventListener('click', () => { closeAbout(); showNews(); });
+  const news = $('news');
+  $('news-close').addEventListener('click', closeNews);
+  news.addEventListener('click', (e) => { if (e.target === news) closeNews(); });
+  news.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeNews(); });
   $('start-core').addEventListener('click', async () => {
     await invoke('ensure_core').catch(showError);
     setTimeout(pollCore, 600);
@@ -913,6 +1037,8 @@ async function openSetup() {
     if (pending.input) cfg.input = pending.input;
     await invoke('set_autostart', { on: $('setup-autostart').checked }).catch(showError);
     cfg.setup_done = true;
+    // a fresh install has nothing to catch up on
+    cfg.seen_version = (await invoke('app_info').catch(() => null))?.version;
     save();
     $('setup').hidden = true;
     await init();
@@ -928,8 +1054,10 @@ async function main() {
   await invoke('ensure_core').catch(() => {});
   // the core writes the config on its first start
   cfg = await loadConfig(14);
-  if (cfg && cfg.setup_done) await init();
-  else await openSetup();
+  if (cfg && cfg.setup_done) {
+    await init();
+    newsAfterUpdate();
+  } else await openSetup();
 }
 
 main().catch(showError);
