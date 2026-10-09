@@ -491,8 +491,22 @@ function buildSound() {
     bandEls.forEach(([s, val], i) => {
       if (document.activeElement !== s) s.value = cfg.eq[i];
     });
-    $('eq-line').setAttribute('points', cfg.eq.map((v, i) => `${50 + i * 100},${60 - v * 4.5}`).join(' '));
   });
+  // LED columns around an amber zero row, three per band, the outer two blend into the neighbours.
+  // A square-root scale so +2 dB already shows while +12 dB still fits; a dim segment marks the half step.
+  const grid = ledColumns($('eq-grid'), 30, 9);
+  painters.push(() => grid.forEach((segs, k) => {
+    const x = (k + 0.5) / 3 - 0.5;
+    const b = Math.max(0, Math.min(9, Math.floor(x)));
+    const f = Math.max(0, Math.min(1, x - b));
+    const v = cfg.eq[b] * (1 - f) + cfg.eq[Math.min(9, b + 1)] * f;
+    const n = Math.sign(v) * 4 * Math.sqrt(Math.abs(v) / 12);
+    segs.forEach((s, i) => {
+      const h = 4 - i;
+      const d = Math.abs(h);
+      s.className = h === 0 ? 'mid' : Math.sign(h) !== Math.sign(n) ? '' : d <= Math.abs(n) ? 'low' : d - 0.5 <= Math.abs(n) ? 'low dim' : '';
+    });
+  }));
 }
 
 // ---------- microphone ----------

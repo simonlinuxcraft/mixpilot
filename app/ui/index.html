@@ -99,11 +99,7 @@
           <span class="title">Equalizer <span id="eq-name" class="muted"></span></span>
           <div class="chips" id="eq-presets" role="group" aria-label="EQ-Presets"></div>
         </div>
-        <svg id="eq-curve" class="curve" viewBox="0 0 1000 120" preserveAspectRatio="none" aria-hidden="true">
-          <line x1="0" y1="60" x2="1000" y2="60" class="zero"></line>
-          <polyline id="eq-line" class="eqline" points=""></polyline>
-        </svg>
-        <div class="bands-scroll"><div class="bands" id="bands"></div></div>
+        <div class="bands-scroll"><div class="eqgrid" id="eq-grid" aria-hidden="true"></div><div class="bands" id="bands"></div></div>
       </div>
     </section>
 

@@ -166,17 +166,19 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .chip-name { min-height: 34px; width: 130px; padding: 0 14px; border-radius: 17px; border: 1px solid var(--acc2); background: var(--panel2); color: var(--text); font: inherit; font-weight: 600; font-size: 13px; outline: none; }
 .chip-name[aria-invalid="true"] { border-color: var(--red); }
 
-.curve { width: 100%; height: 64px; display: block; border-radius: 6px; background: var(--well); }
-.curve .zero { stroke: var(--line); stroke-width: 1; }
-.curve .eqline { fill: none; stroke: var(--acc); stroke-width: 3; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .bands-scroll { overflow-x: auto; }
-.bands { display: flex; justify-content: space-between; gap: 8px; min-width: 520px; }
-.band { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.eqgrid { display: flex; gap: 4px; min-width: 520px; margin-bottom: 8px; padding: 8px 12px; border-radius: 6px; background: var(--well); }
+.eqgrid .ledcol { flex: 1 1 0; grid-template-rows: repeat(var(--rows), 7px); gap: 3px; }
+.eqgrid .ledcol i { width: 100%; }
+.ledcol i.dim { opacity: 0.45; }
+/* ten equal cells so every band sits under the middle of its three LED columns */
+.bands { display: grid; grid-template-columns: repeat(10, 1fr); justify-items: center; min-width: 520px; padding: 0 12px; }
+.band { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .band .num { width: 44px; min-height: 26px; font-size: 14px; padding: 0 2px; }
 .band .mono { color: var(--text); font-size: 11px; }
 .band .freq { color: var(--muted); }
-.bwrap { position: relative; width: 32px; height: 116px; }
-.bslider { -webkit-appearance: none; appearance: none; position: absolute; width: 116px; height: 32px; left: -42px; top: 42px; transform: rotate(-90deg); background: transparent; margin: 0; cursor: pointer; }
+.bwrap { position: relative; width: 32px; height: 84px; }
+.bslider { -webkit-appearance: none; appearance: none; position: absolute; width: 84px; height: 32px; left: -26px; top: 26px; transform: rotate(-90deg); background: transparent; margin: 0; cursor: pointer; }
 .bslider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--line2); }
 .bslider::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 22px; margin-top: -9px; border-radius: 3px; border: none; background: var(--acc); }
 
