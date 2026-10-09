@@ -235,33 +235,44 @@ fn mic_test_file() -> PathBuf {
     runtime_dir().join("mixpilot").join("mic-test.wav")
 }
 
+// a window closed and reopened during the five seconds must not start a second recording
+static MIC_TEST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Five seconds of the processed voice, the same signal Discord and OBS get.
 #[tauri::command(async)]
 fn mic_test_record() -> Result<(), String> {
+    // without the core there is no Mixpilot microphone, WirePlumber would hand pw-record the raw one
+    if !core_running() {
+        return Err("Audio-Kern gestoppt".into());
+    }
+    if MIC_TEST.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Err("Der Mikrofon-Test läuft schon".into());
+    }
     let file = mic_test_file();
-    let mut rec = Command::new("pw-record")
-        .args(["--target", "mixpilot_mic", "--rate", "48000", "--channels", "1"])
+    // timeout ends the recording with SIGINT (pw-record then finishes the file header), also when
+    // Mixpilot quits during the five seconds
+    let status = Command::new("timeout")
+        .args(["-s", "INT", "5", "pw-record", "--target", "mixpilot_mic", "--rate", "48000", "--channels", "1"])
         .arg(&file)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("pw-record: {e}"))?;
-    for _ in 0..50 {
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        if let Ok(Some(_)) = rec.try_wait() {
-            return Err("Aufnahme fehlgeschlagen".into());
-        }
-    }
-    // SIGINT lets pw-record finish the file header
-    unsafe { libc::kill(rec.id() as i32, libc::SIGINT) };
-    let _ = rec.wait();
-    if std::fs::metadata(&file).is_ok_and(|m| m.len() > 44) { Ok(()) } else { Err("Aufnahme fehlgeschlagen".into()) }
+        .status();
+    MIC_TEST.store(false, std::sync::atomic::Ordering::SeqCst);
+    // 124: stopped by timeout, the normal end; anything earlier means pw-record failed
+    let stopped = status.is_ok_and(|s| s.code() == Some(124));
+    if stopped && std::fs::metadata(&file).is_ok_and(|m| m.len() > 44) { Ok(()) } else { Err("Aufnahme fehlgeschlagen".into()) }
 }
 
 #[tauri::command(async)]
 fn mic_test_play() -> Result<(), String> {
     let file = mic_test_file();
-    let played = Command::new("pw-play").arg(&file).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    // on the device Mixpilot plays to, which may differ from the system default
+    let mut play = Command::new("pw-play");
+    let out = output_sink();
+    if out != "@DEFAULT_SINK@" {
+        play.args(["--target", &out]);
+    }
+    let played = play.arg(&file).stdout(Stdio::null()).stderr(Stdio::null()).status();
     let _ = std::fs::remove_file(&file);
     match played {
         Ok(s) if s.success() => Ok(()),
