@@ -64,6 +64,12 @@ impl Biquad {
         Self::norm([(1.0 + cos) / 2.0, -(1.0 + cos), (1.0 + cos) / 2.0], [1.0 + alpha, -2.0 * cos, 1.0 - alpha])
     }
 
+    pub fn low_pass(freq: f32) -> Self {
+        let (sin, cos) = (TAU * freq / RATE).sin_cos();
+        let alpha = sin / (2.0 * std::f32::consts::FRAC_1_SQRT_2);
+        Self::norm([(1.0 - cos) / 2.0, 1.0 - cos, (1.0 - cos) / 2.0], [1.0 + alpha, -2.0 * cos, 1.0 - alpha])
+    }
+
     /// Swap coefficients but keep the filter state, so parameter changes do not click.
     pub fn retune(&mut self, other: Biquad) {
         let (z1, z2) = (self.z1, self.z2);
@@ -128,8 +134,9 @@ pub fn voice_preset(i: u32) -> Chain5 {
         1 => [Biquad::high_pass(70.0), Biquad::low_shelf(220.0, 6.0), Biquad::peaking(3000.0, -3.0, 1.0), Biquad::high_shelf(6000.0, -6.0), id],
         // telephone band: steep cut below 300 Hz and above 3.5 kHz, honky mids
         2 => [Biquad::high_pass(300.0), Biquad::high_pass(300.0), Biquad::peaking(1600.0, 6.0, 0.9), Biquad::high_shelf(3500.0, -14.0), Biquad::high_shelf(3500.0, -10.0)],
-        // radio presenter: proximity bass, mud cut, presence and air (plus heavy compression, see Leveler::broadcast)
-        3 => [Biquad::high_pass(90.0), Biquad::low_shelf(120.0, 5.0), Biquad::peaking(350.0, -4.0, 1.2), Biquad::peaking(4000.0, 6.0, 0.8), Biquad::high_shelf(10000.0, 4.0)],
+        // radio presenter: proximity bass, mud cut, presence and air (plus heavy compression and a
+        // de-esser, see Leveler::broadcast and DeEsser)
+        3 => [Biquad::high_pass(80.0), Biquad::peaking(120.0, 7.0, 0.8), Biquad::peaking(380.0, -5.0, 1.4), Biquad::peaking(4000.0, 6.0, 0.8), Biquad::high_shelf(9000.0, 5.0)],
         _ => [Biquad::high_pass(80.0), id, id, id, id],
     }
 }
@@ -212,11 +219,14 @@ pub struct Leveler {
     ratio: f32,
     makeup: f32,
     floor_db: f32,
+    // in near-silence keep the last gain instead of falling back to 0 dB, so the next syllable
+    // starts already compressed
+    hold: bool,
 }
 
 impl Leveler {
     pub fn new(threshold: f32, ratio: f32, makeup: f32, attack_ms: f32, release_ms: f32) -> Self {
-        Self { ms: 0.0, detect: coef(80.0), attack: coef(attack_ms), release: coef(release_ms), gain_db: 0.0, threshold, ratio, makeup, floor_db: -55.0 }
+        Self { ms: 0.0, detect: coef(80.0), attack: coef(attack_ms), release: coef(release_ms), gain_db: 0.0, threshold, ratio, makeup, floor_db: -55.0, hold: false }
     }
 
     /// 0 off, 1 soft, 2 night
@@ -228,9 +238,10 @@ impl Leveler {
         }
     }
 
-    /// dense presenter sound, runs after the AGC so the input level is already known
+    /// Dense presenter sound, runs after the AGC so the input level is known (about -23 dBFS):
+    /// around 10 dB of gain reduction with a fast detector, the way radio voice processors work.
     pub fn broadcast() -> Self {
-        Self::new(-27.0, 4.0, 4.0, 5.0, 150.0)
+        Self { detect: coef(10.0), hold: true, ..Self::new(-36.0, 6.0, 10.0, 3.0, 120.0) }
     }
 
     /// Returns the linear gain to apply to this sample (stereo-linked: feed the louder side).
@@ -239,6 +250,9 @@ impl Leveler {
         self.ms += (x * x - self.ms) * self.detect;
         let level = 10.0 * (self.ms + 1e-12).log10();
         let target = if level < self.floor_db {
+            if self.hold {
+                return 10f32.powf(self.gain_db / 20.0);
+            }
             0.0
         } else {
             let over = level - self.threshold;
@@ -247,6 +261,38 @@ impl Leveler {
         let k = if target < self.gain_db { self.attack } else { self.release };
         self.gain_db += (target - self.gain_db) * k;
         10f32.powf(self.gain_db / 20.0)
+    }
+}
+
+/// Split-band de-esser: when the sibilant band above 5 kHz stands out against the whole voice,
+/// only that band is turned down, so S and Sch stop hissing without dulling the rest.
+pub struct DeEsser {
+    lp: Biquad,
+    env_hf: f32,
+    env_all: f32,
+    fall: f32,
+    gain: f32,
+    attack: f32,
+    release: f32,
+}
+
+impl DeEsser {
+    pub fn new() -> Self {
+        Self { lp: Biquad::low_pass(5000.0), env_hf: 0.0, env_all: 0.0, fall: coef(30.0), gain: 1.0, attack: coef(1.0), release: coef(80.0) }
+    }
+
+    #[inline]
+    pub fn run(&mut self, x: f32) -> f32 {
+        // the band is the input minus its low part, so turning it down never shifts the phase of the rest
+        let s = x - self.lp.run(x);
+        self.env_hf = s.abs().max(self.env_hf - self.env_hf * self.fall);
+        self.env_all = x.abs().max(self.env_all - self.env_all * self.fall);
+        // the sibilant band may reach 40 % of the voice before it is pulled down, at most by 12 dB
+        let ratio = self.env_hf / (self.env_all + 1e-6);
+        let target = if ratio > 0.4 { (0.4 / ratio).max(0.25) } else { 1.0 };
+        let k = if target < self.gain { self.attack } else { self.release };
+        self.gain += (target - self.gain) * k;
+        x - s * (1.0 - self.gain)
     }
 }
 
@@ -670,6 +716,41 @@ mod tests {
     }
 
     #[test]
+    fn broadcast_compresses_hard() {
+        // speech-like bursts 12 dB apart around the AGC target end up much closer together
+        // held level of the bursts, after the first 20 ms of each, so the onset before the attack does not count
+        let level = |amp: f32| {
+            let mut c = Leveler::broadcast();
+            let (mut sum, mut n, mut peak) = (0f32, 0, 0f32);
+            for i in 0..48000 {
+                let x = speechy(amp, i);
+                let y = x * c.gain(x);
+                peak = peak.max(y.abs());
+                if i > 24000 && (i / 4800) % 2 == 0 && i % 4800 > 960 {
+                    sum += y * y;
+                    n += 1;
+                }
+            }
+            (10.0 * (sum / n as f32).log10(), 20.0 * peak.log10())
+        };
+        let ((quiet, _), (loud, loud_peak)) = (level(0.05), level(0.2));
+        eprintln!("broadcast: 12 dB in, {:.1} dB out, loud {loud:.1} dBFS rms, peak {loud_peak:.1} dBFS", loud - quiet);
+        assert!(loud - quiet < 4.0, "12 dB in, {:.1} dB out", loud - quiet);
+        assert!(loud_peak < 0.0, "no clipping before the limiter: {loud_peak:.1} dBFS");
+    }
+
+    #[test]
+    fn de_esser_tames_sibilants_only() {
+        let run = |freq: f32| {
+            let mut d = DeEsser::new();
+            20.0 * sine_gain(|x| d.run(x * 0.3) / 0.3, freq).log10()
+        };
+        eprintln!("de-esser: 300 Hz {:.1} dB, 7 kHz {:.1} dB", run(300.0), run(7000.0));
+        assert!(run(300.0).abs() < 1.0, "voice untouched: {:.1} dB", run(300.0));
+        assert!(run(7000.0) < -6.0, "sibilant down: {:.1} dB", run(7000.0));
+    }
+
+    #[test]
     fn voice_presets_are_clearly_different() {
         let db = |i: u32, f: f32| {
             let mut c = voice_preset(i);
@@ -682,6 +763,7 @@ mod tests {
         assert!(db(natural, 7000.0) - db(radio, 7000.0) > 15.0, "radio high cut");
         assert!(db(broadcast, 4000.0) - db(natural, 4000.0) > 5.0, "broadcast presence");
         assert!(db(natural, 350.0) - db(broadcast, 350.0) > 2.5, "broadcast mud cut");
+        assert!(db(broadcast, 120.0) - db(natural, 120.0) > 5.0, "broadcast proximity bass");
         for i in 0..4 {
             assert!(db(i, 1000.0).abs() < 7.0, "preset {i} keeps the voice band level");
         }

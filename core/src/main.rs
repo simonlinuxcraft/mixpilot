@@ -22,7 +22,7 @@ use std::time::{Duration, SystemTime};
 
 use nnnoiseless::DenoiseState;
 use pipewire as pw;
-use pw::metadata::Metadata;
+use pw::metadata::{Metadata, MetadataListener};
 use pw::node::{Node, NodeListener};
 use pw::properties::properties;
 use pw::spa;
@@ -31,7 +31,7 @@ use pw::types::ObjectType;
 use spa::pod::{serialize::PodSerializer, Object, Pod, Value};
 
 use config::{index_of, Config, CHANNELS};
-use dsp::{run3, run5, sanitize, Agc, Biquad, Chain3, Chain5, Envelope, Eq10, Gate, Leveler, Limiter, Smooth};
+use dsp::{run3, run5, sanitize, Agc, Biquad, Chain3, Chain5, DeEsser, Envelope, Eq10, Gate, Leveler, Limiter, Smooth};
 
 /// ~100 ms of stereo audio. Anything older is dropped so latency cannot creep up.
 const RING_MAX: usize = 48_000 / 10 * 2;
@@ -43,7 +43,7 @@ const FRAME: usize = DenoiseState::FRAME_SIZE;
 const TICK_MS: u64 = 50;
 const RETRY_TICKS: u32 = 40;
 /// Bumped whenever the app needs something new from the core; must match STATE_PROTO in the app.
-const STATE_PROTO: u32 = 3;
+const STATE_PROTO: u32 = 4;
 
 /// Values the control side writes and the realtime threads read. f32 stored as bits.
 #[derive(Default)]
@@ -228,6 +228,7 @@ struct MicDsp {
     gate: Gate,
     agc: Agc,
     comp: Leveler,
+    deess: DeEsser,
     limiter: Limiter,
     gain: Smooth,
     vad: Smooth,
@@ -245,6 +246,7 @@ impl MicDsp {
             gate: Gate::new(),
             agc: Agc::voice(),
             comp: Leveler::broadcast(),
+            deess: DeEsser::new(),
             // -3 dBFS leaves headroom for the codecs of voice chat apps
             limiter: Limiter::new(-3.0, 80.0),
             gain: Smooth::new(1.0, 20.0),
@@ -302,6 +304,8 @@ impl MicDsp {
                 }
                 if broadcast {
                     y *= self.comp.gain(y);
+                    // compression and the presence boost push S sounds forward
+                    y = self.deess.run(y);
                 }
                 let (y, _) = self.limiter.run(y, y);
                 peak = peak.max(y.abs());
@@ -345,23 +349,34 @@ impl Prime {
 /// written again when WirePlumber restarts and its metadata comes back empty.
 #[derive(Default)]
 struct Router {
-    md: Option<(u32, Metadata)>,
+    // listener first so it is dropped before its proxy
+    md: Option<(u32, MetadataListener, Metadata)>,
     targets: HashMap<u32, String>,
 }
 
 impl Router {
     fn set(&mut self, id: u32, target: &str) {
-        if let Some((_, m)) = &self.md {
+        if let Some((_, _, m)) = &self.md {
             m.set_property(id, "target.object", None, Some(target));
         }
         self.targets.insert(id, target.to_string());
     }
     fn clear(&mut self, id: u32) {
-        if let Some((_, m)) = &self.md {
+        if let Some((_, _, m)) = &self.md {
             m.set_property(id, "target.object", None, None);
         }
         self.targets.remove(&id);
     }
+}
+
+/// Audio sinks and sources as the registry reports them: the app's device pickers, the microphone
+/// target, and a second running Mixpilot (its channels show up next to ours).
+#[derive(serde::Serialize)]
+struct Device {
+    name: String,
+    description: String,
+    #[serde(skip)]
+    sink: bool,
 }
 
 struct App {
@@ -819,9 +834,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (rt, ap, rcfg, b, h, ev) = (router.clone(), apps.clone(), cfg.clone(), bound.clone(), handled.clone(), events.clone());
     let (rt2, ap2, b2, h2) = (router.clone(), apps.clone(), bound.clone(), handled.clone());
     let (sl, sl2, src_node) = (src_links.clone(), src_links.clone(), mic_src.clone());
-    // node.name -> id of hardware sources, so the microphone connects straight to the chosen one
-    let sources: Rc<RefCell<HashMap<String, u32>>> = Rc::new(RefCell::new(HashMap::new()));
-    let (so, so2) = (sources.clone(), sources.clone());
+    // read here instead of from pw-dump, whose output changes between PipeWire versions
+    let devices: Rc<RefCell<HashMap<u32, Device>>> = Rc::new(RefCell::new(HashMap::new()));
+    let defaults: Rc<RefCell<[String; 2]>> = Rc::new(RefCell::new(Default::default()));
+    let (dv, dv2, df) = (devices.clone(), devices.clone(), defaults.clone());
     let _reg_listener = registry
         .add_listener_local()
         .global(move |obj| {
@@ -830,11 +846,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             match obj.type_ {
                 ObjectType::Metadata if props.get("metadata.name") == Some("default") => match reg.bind::<Metadata, _>(obj) {
                     Ok(m) => {
+                        let df = df.clone();
+                        let listener = m
+                            .add_listener_local()
+                            .property(move |subject, key, _, value| {
+                                if subject != pw::core::PW_ID_CORE {
+                                    return 0;
+                                }
+                                // values look like {"name": "alsa_output..."}
+                                let name = || {
+                                    value
+                                        .and_then(|v| serde_json::from_str::<serde_json::Value>(v).ok())
+                                        .and_then(|v| v["name"].as_str().map(str::to_string))
+                                        .unwrap_or_default()
+                                };
+                                match key {
+                                    Some("default.audio.sink") => df.borrow_mut()[0] = name(),
+                                    Some("default.audio.source") => df.borrow_mut()[1] = name(),
+                                    None => *df.borrow_mut() = Default::default(),
+                                    _ => {}
+                                }
+                                0
+                            })
+                            .register();
                         let mut r = rt.borrow_mut();
                         for (id, target) in r.targets.iter() {
                             m.set_property(*id, "target.object", None, Some(target));
                         }
-                        r.md = Some((obj.id, m));
+                        r.md = Some((obj.id, listener, m));
                     }
                     Err(e) => log!("cannot bind metadata: {e}"),
                 },
@@ -846,8 +885,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 ObjectType::Node => {
                     let name = props.get("node.name").unwrap_or("");
-                    if props.get("media.class") == Some("Audio/Source") && !name.starts_with("mixpilot") {
-                        so.borrow_mut().insert(name.to_string(), obj.id);
+                    let class = props.get("media.class");
+                    if matches!(class, Some("Audio/Sink" | "Audio/Source")) {
+                        let description = props.get("node.description").unwrap_or(name).to_string();
+                        dv.borrow_mut().insert(obj.id, Device { name: name.to_string(), description, sink: class == Some("Audio/Sink") });
                     }
                     if name == "easyeffects_sink" {
                         event(&ev, "easyeffects", &[]);
@@ -887,11 +928,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             b2.borrow_mut().remove(&id);
             h2.borrow_mut().remove(&id);
             sl2.borrow_mut().remove(&id);
-            so2.borrow_mut().retain(|_, v| *v != id);
+            dv2.borrow_mut().remove(&id);
             ap2.borrow_mut().remove(&id);
             let mut r = rt2.borrow_mut();
             r.targets.remove(&id);
-            if r.md.as_ref().is_some_and(|(mid, _)| *mid == id) {
+            if r.md.as_ref().is_some_and(|(mid, ..)| *mid == id) {
                 r.md = None;
             }
         })
@@ -909,7 +950,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mic_test = state_dir.join("mic-test");
     let state_file = state_dir.join("state.json");
     let (p, rcfg, rt, ap, ev, lv) = (params.clone(), cfg.clone(), router.clone(), apps.clone(), events.clone(), levels.clone());
-    let (out, src_on, mic, merr, srcs) = (output.clone(), src_links.clone(), mic_in.clone(), mic_err.clone(), sources.clone());
+    let (out, src_on, mic, merr, devs, defs) = (output.clone(), src_links.clone(), mic_in.clone(), mic_err.clone(), devices.clone(), defaults.clone());
     let (nightc, stereo2, mono2, state_out) = (night.clone(), stereo.clone(), mono.clone(), state_file.clone());
     let timer = mainloop.loop_().add_timer(move |_| {
         let tick = ticks.get() + 1;
@@ -1013,7 +1054,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if !mic_on.get() && mic_wait.get() == 0 {
                 let flags = StreamFlags::AUTOCONNECT | StreamFlags::MAP_BUFFERS | StreamFlags::RT_PROCESS;
                 let input = rcfg.borrow().input.clone();
-                let target = if input.is_empty() { None } else { srcs.borrow().get(&input).copied() };
+                let target = devs.borrow().iter().find(|(_, d)| !d.sink && d.name == input && !input.starts_with("mixpilot")).map(|(id, _)| *id);
                 match mic.connect(spa::utils::Direction::Input, target, flags, &mut [Pod::from_bytes(&mono2).unwrap()]) {
                     Ok(()) => {
                         mic_on.set(true);
@@ -1052,6 +1093,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         list.sort_by(|a, b| a["key"].as_str().cmp(&b["key"].as_str()).then(a["name"].as_str().cmp(&b["name"].as_str())));
         list.dedup_by(|a, b| a["key"] == b["key"]);
         list.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+        let dl = devs.borrow();
+        let hw = |sink: bool| {
+            let mut v: Vec<&Device> = dl.values().filter(|d| d.sink == sink && !d.name.starts_with("mixpilot")).collect();
+            v.sort_by(|a, b| a.description.cmp(&b.description));
+            v
+        };
+        let def = defs.borrow();
         let state = serde_json::json!({
             // the app replaces a running core whose protocol differs (old version after an update)
             "proto": STATE_PROTO,
@@ -1063,6 +1111,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "mic_active": mic_on.get(),
             "night_active": nightc.get(),
             "apps": list,
+            "devices": {
+                "sinks": hw(true),
+                "sources": hw(false),
+                "default_sink": def[0],
+                "default_source": def[1],
+                "duplicate": dl.values().filter(|d| d.name == "mixpilot_game").count() > 1,
+            },
             "events": ev.borrow().iter().map(|(t, k, a)| serde_json::json!({"time": t, "key": k, "args": a})).collect::<Vec<_>>(),
         });
         if let Ok(bytes) = serde_json::to_vec(&state) {
