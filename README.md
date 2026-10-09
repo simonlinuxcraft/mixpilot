@@ -63,7 +63,7 @@ Needs PipeWire with WirePlumber, the default on most current distributions
 
 **Sound**
 
-- 10-band equalizer with presets (Flat, Bass, Voice, Gaming, Clear)
+- 10-band equalizer with presets (Flat, Bass, Voice, Gaming, Clear) and up to four of your own
 - Bass boost below 100 Hz with clipping protection
 - Auto volume: Gentle evens out jumps between apps, Night lifts quiet parts and tames explosions
 - Hearing protection limiter with 1 ms lookahead
@@ -90,7 +90,6 @@ The interface is available in English and German.
 
 - Global hotkey for microphone mute and push-to-talk
 - Profiles (Gaming, Movie, Night) with one click, optionally switched by the running app
-- Save your own EQ presets
 - Headphone correction based on measured frequency responses
 - Automatic fallback to speakers when the headset disconnects
 - Microphone test: record and play back

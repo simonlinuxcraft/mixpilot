@@ -161,6 +161,10 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chips button { min-height: 34px; padding: 0 14px; border-radius: 17px; border: 1px solid var(--line2); background: var(--panel2); color: #c9c6bf; font-weight: 600; font-size: 13px; cursor: pointer; }
 .chips button[aria-pressed="true"] { background: var(--acc2); color: var(--acc2-ink); border-color: var(--acc2); }
+.chips button.ghost { background: transparent; border-style: dashed; color: var(--muted); }
+.chips button[aria-disabled="true"] { opacity: .45; cursor: default; }
+.chip-name { min-height: 34px; width: 130px; padding: 0 14px; border-radius: 17px; border: 1px solid var(--acc2); background: var(--panel2); color: var(--text); font: inherit; font-weight: 600; font-size: 13px; outline: none; }
+.chip-name[aria-invalid="true"] { border-color: var(--red); }
 
 .curve { width: 100%; height: 64px; display: block; border-radius: 6px; background: var(--well); }
 .curve .zero { stroke: var(--line); stroke-width: 1; }

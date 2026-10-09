@@ -116,6 +116,8 @@ function defaults(c) {
   c.clarity ??= false;
   c.auto_volume ??= 'off';
   c.eq ??= [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  c.eq_presets = Object.fromEntries(Object.entries(c.eq_presets || {})
+    .filter(([, g]) => Array.isArray(g) && g.length === 10 && g.every(Number.isFinite)));
   c.output ??= '';
   c.input ??= '';
   c.mic ??= {};
@@ -362,9 +364,82 @@ function paintCardsMixer() {
 }
 
 // ---------- sound ----------
-function eqPresetName() {
-  const hit = Object.entries(EQ_PRESETS).find(([, g]) => g.every((v, i) => v === cfg.eq[i]));
-  return hit ? hit[0] : 'Eigenes';
+// more chips would wrap the card into a second row and push the page into scrolling
+const EQ_OWN_MAX = 4;
+function eqPreset() {
+  const same = ([, g]) => g.every((v, i) => v === cfg.eq[i]);
+  const b = Object.entries(EQ_PRESETS).find(same);
+  if (b) return { name: b[0], label: t(b[0]) };
+  const u = Object.entries(cfg.eq_presets).find(same);
+  return u ? { name: u[0], label: u[0], own: true } : { name: '', label: t('Eigenes') };
+}
+
+function ownPresetChips(box) {
+  let naming = false;
+  let key = null;
+  const nodes = [];
+  const chip = (text, cls, label, onClick) => {
+    const b = el('button', cls, text);
+    if (label) b.setAttribute('aria-label', label);
+    b.addEventListener('click', onClick);
+    return b;
+  };
+  const nameField = () => {
+    const input = el('input', 'chip-name');
+    Object.assign(input, { type: 'text', maxLength: 20, spellcheck: false, placeholder: t('Name') });
+    input.setAttribute('aria-label', t('Name für das eigene Preset'));
+    const builtIn = (n) => n === 'Eigenes' || Object.keys(EQ_PRESETS).some((k) => k === n || t(k) === n);
+    const done = () => { naming = false; paintAll(); };
+    const commit = () => {
+      const n = input.value.trim();
+      if (!naming) return;
+      if (!n) return done();
+      if (builtIn(n)) {
+        input.setAttribute('aria-invalid', 'true');
+        input.title = t('So heißt schon ein eingebautes Preset');
+        return;
+      }
+      cfg.eq_presets[n] = cfg.eq.slice();
+      naming = false;
+      paintAll();
+      save();
+    };
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') commit();
+      else if (e.key === 'Escape') done();
+    });
+    input.addEventListener('input', () => input.removeAttribute('aria-invalid'));
+    input.addEventListener('blur', () => { if (input.getAttribute('aria-invalid')) done(); else commit(); });
+    return input;
+  };
+  return (cur) => {
+    const names = Object.keys(cfg.eq_presets);
+    const action = naming ? 'name' : cur.own ? 'delete' : cur.name ? '' : names.length < EQ_OWN_MAX ? 'save' : 'full';
+    const k = JSON.stringify([names, cur.name, action]);
+    if (k === key) return;
+    key = k;
+    nodes.splice(0).forEach((n) => n.remove());
+    for (const n of names) {
+      const b = chip(n, 'own', null, change(() => (cfg.eq = cfg.eq_presets[n].slice())));
+      b.setAttribute('aria-pressed', String(n === cur.name));
+      nodes.push(b);
+    }
+    if (action === 'save') {
+      const b = chip(t('+ Speichern'), 'ghost', t('Aktuelle Kurve als eigenes Preset speichern'), () => { naming = true; paintAll(); });
+      nodes.push(b);
+    } else if (action === 'full') {
+      const b = chip(t('+ Speichern'), 'ghost', null, () => {});
+      b.setAttribute('aria-disabled', 'true');
+      b.title = t('Höchstens {0} eigene Presets, lösch zuerst eins', EQ_OWN_MAX);
+      nodes.push(b);
+    } else if (action === 'delete') {
+      nodes.push(chip(t('Löschen'), 'ghost', t('Preset {0} löschen', cur.name), change(() => delete cfg.eq_presets[cur.name])));
+    } else if (action === 'name') {
+      nodes.push(nameField());
+    }
+    box.append(...nodes);
+    if (action === 'name') nodes.at(-1).focus();
+  };
 }
 
 function buildSound() {
@@ -387,6 +462,7 @@ function buildSound() {
     presets.append(b);
     return [name, b];
   });
+  const paintOwn = ownPresetChips(presets);
   const bands = $('bands');
   const bandEls = FREQ.map((f, i) => {
     const box = el('div', 'band');
@@ -408,9 +484,10 @@ function buildSound() {
     return [s, val];
   });
   painters.push(() => {
-    const name = eqPresetName();
-    $('eq-name').textContent = t(name);
-    pbtn.forEach(([n, b]) => b.setAttribute('aria-pressed', String(n === name)));
+    const cur = eqPreset();
+    $('eq-name').textContent = cur.label;
+    pbtn.forEach(([n, b]) => b.setAttribute('aria-pressed', String(n === cur.name)));
+    paintOwn(cur);
     bandEls.forEach(([s, val], i) => {
       if (document.activeElement !== s) s.value = cfg.eq[i];
     });
