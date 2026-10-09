@@ -602,8 +602,14 @@ function buildMic() {
       cfg.input = devices.default_source;
       save();
     }
-    await invoke('set_default_source', { name: 'mixpilot_mic' }).catch(showError);
-    await refreshDevices();
+    try {
+      await invoke('set_default_source', { name: 'mixpilot_mic' });
+      // WirePlumber applies it a moment later, the core's list catches up on the next refresh
+      devices.default_source = 'mixpilot_mic';
+      paintDevices();
+    } catch (e) {
+      showError(e);
+    }
   });
 }
 

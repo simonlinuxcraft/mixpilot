@@ -45,7 +45,7 @@ fn core_binary() -> Option<PathBuf> {
 }
 
 /// Must match STATE_PROTO in the core.
-const STATE_PROTO: u64 = 3;
+const STATE_PROTO: u64 = 4;
 
 /// A current core rewrites state.json every 50 ms and reports the protocol this app speaks.
 fn state_fresh() -> bool {
@@ -188,59 +188,15 @@ fn write_config(cfg: &Value) -> Result<(), String> {
     std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
 }
 
-#[derive(Serialize)]
-struct Device {
-    name: String,
-    description: String,
-}
-
-#[derive(Serialize, Default)]
-struct Devices {
-    sinks: Vec<Device>,
-    sources: Vec<Device>,
-    default_sink: String,
-    default_source: String,
-    /// a second Mixpilot (snap next to deb) has its own core and channels
-    duplicate: bool,
-}
-
-/// Hardware outputs and microphones for the pickers, plus the current system defaults.
-/// Mixpilot's own nodes are left out: the output pointing into Mixpilot itself would have no way out.
+/// Hardware outputs and microphones for the pickers, plus the current system defaults, as the core
+/// last saw them in the PipeWire registry. Empty until a core has run.
 #[tauri::command(async)]
-fn list_devices() -> Result<Devices, String> {
-    let out = Command::new("pw-dump").output().map_err(|e| format!("pw-dump: {e}"))?;
-    let all: Value = serde_json::from_slice(&out.stdout).map_err(|_| "Geräteliste konnte nicht gelesen werden".to_string())?;
-    let mut d = Devices::default();
-    let mut games = 0;
-    for o in all.as_array().into_iter().flatten() {
-        if let Some(p) = o.pointer("/info/props") {
-            let Some(name) = p.get("node.name").and_then(Value::as_str) else { continue };
-            if name.starts_with("mixpilot_") {
-                games += (name == "mixpilot_game") as u32;
-                continue;
-            }
-            let dev = Device { name: name.to_string(), description: p.get("node.description").and_then(Value::as_str).unwrap_or(name).to_string() };
-            match p.get("media.class").and_then(Value::as_str) {
-                Some("Audio/Sink") => d.sinks.push(dev),
-                Some("Audio/Source") => d.sources.push(dev),
-                _ => {}
-            }
-        }
-        if o.pointer("/props/metadata.name").and_then(Value::as_str) == Some("default") {
-            for e in o.get("metadata").and_then(Value::as_array).into_iter().flatten() {
-                let name = || e.pointer("/value/name").and_then(Value::as_str).unwrap_or("").to_string();
-                match e.get("key").and_then(Value::as_str) {
-                    Some("default.audio.sink") => d.default_sink = name(),
-                    Some("default.audio.source") => d.default_source = name(),
-                    _ => {}
-                }
-            }
-        }
-    }
-    d.duplicate = games > 1;
-    d.sinks.sort_by(|a, b| a.description.cmp(&b.description));
-    d.sources.sort_by(|a, b| a.description.cmp(&b.description));
-    Ok(d)
+fn list_devices() -> Value {
+    std::fs::read(runtime_dir().join("mixpilot").join("state.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .and_then(|mut s| s.get_mut("devices").map(Value::take))
+        .unwrap_or_else(|| serde_json::json!({ "sinks": [], "sources": [], "default_sink": "", "default_source": "", "duplicate": false }))
 }
 
 /// Makes a microphone the system default, the same way the GNOME sound settings do.

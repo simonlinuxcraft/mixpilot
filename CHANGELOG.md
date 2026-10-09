@@ -11,6 +11,7 @@
 - The mixer strips fill the window and the faders grow with it. The window opens at its minimum size
 - A what's new dialog after an update, also reachable from the about dialog
 - The instant mute switch left the microphone tab, it stays in the tray menu
+- The device lists come straight from the audio core, so the occasional "Could not read the device list" error is gone on every PipeWire version
 
 ## 0.0.1 - First release
 
