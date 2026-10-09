@@ -1008,6 +1008,11 @@ async function init() {
   const box = $('strips');
   for (const [id, label] of CHANNELS) box.append(strip(id, label, false));
   box.append(el('div', 'sep'), strip('master', 'Master', true));
+  // a rotated range keeps its horizontal width, so the fader length follows the strip height by hand
+  new ResizeObserver(() => box.querySelectorAll('.fwrap').forEach((w) => {
+    const h = w.clientHeight;
+    Object.assign(w.firstElementChild.style, { width: `${h}px`, left: `${(44 - h) / 2}px`, top: `${(h - 44) / 2}px` });
+  })).observe(box);
   bindRange('chatmix', () => cfg.chatmix, (v) => (cfg.chatmix = v));
   painters.push(paintCardsMixer);
   buildSound();

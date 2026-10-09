@@ -108,8 +108,9 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .error { margin: 0; padding: 10px 14px; border-radius: 8px; background: #3a1714; color: #ffd2cc; }
 
 /* mixer strips */
-.strips { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; }
-.strip { width: 150px; padding: 12px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+/* the channel strips fill the window, init() gives the rotated faders the matching length */
+.strips { flex: 1 1 auto; min-height: 0; display: flex; gap: 12px; align-items: stretch; }
+.strip { flex: 1 1 150px; padding: 12px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
 .strip.master { border-color: #3a3326; }
 .sep { width: 1px; background: var(--line2); margin: 0 6px; }
 .strip-head { display: flex; align-items: center; gap: 8px; }
@@ -117,7 +118,7 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .strip-name { flex-grow: 1; font-weight: 700; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: #5a5f67; }
 .dot.on { background: var(--acc2); }
-.strip-body { display: flex; justify-content: center; gap: 12px; height: 200px; }
+.strip-body { display: flex; justify-content: center; gap: 12px; flex: 1 1 auto; min-height: 200px; }
 .meter { display: flex; gap: 3px; padding: 4px; border-radius: 4px; background: var(--well); }
 .meter .col { display: flex; flex-direction: column-reverse; gap: 2px; }
 .meter i { display: block; width: 7px; flex: 1 1 0; border-radius: 1px; background: var(--seg-off); }
@@ -141,7 +142,7 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .appchips span { padding: 2px 8px; border-radius: 10px; background: var(--seg-off); font-size: 11px; color: #c9c6bf; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* vertical faders: a rotated horizontal range is the most reliable form in WebKitGTK */
-.fwrap { position: relative; width: 44px; height: 200px; flex: none; }
+.fwrap { position: relative; width: 44px; flex: none; }
 .fader { -webkit-appearance: none; appearance: none; position: absolute; width: 200px; height: 44px; left: -78px; top: 78px; transform: rotate(-90deg); background: transparent; margin: 0; cursor: pointer; }
 .fader::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: #08090a; box-shadow: inset 0 0 0 1px var(--line2); }
 .fader::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 38px; margin-top: -16px; border-radius: 3px; border: 1px solid #555b63; background: linear-gradient(90deg, #2c3036 0 42%, var(--acc) 42% 58%, #2c3036 58%); }
