@@ -270,6 +270,45 @@ fn get_state(mic_test: bool) -> Result<Value, String> {
     serde_json::from_slice(&text).map_err(|e| e.to_string())
 }
 
+fn mic_test_file() -> PathBuf {
+    runtime_dir().join("mixpilot").join("mic-test.wav")
+}
+
+/// Five seconds of the processed voice, the same signal Discord and OBS get.
+#[tauri::command(async)]
+fn mic_test_record() -> Result<(), String> {
+    let file = mic_test_file();
+    let mut rec = Command::new("pw-record")
+        .args(["--target", "mixpilot_mic", "--rate", "48000", "--channels", "1"])
+        .arg(&file)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("pw-record: {e}"))?;
+    for _ in 0..50 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if let Ok(Some(_)) = rec.try_wait() {
+            return Err("Aufnahme fehlgeschlagen".into());
+        }
+    }
+    // SIGINT lets pw-record finish the file header
+    unsafe { libc::kill(rec.id() as i32, libc::SIGINT) };
+    let _ = rec.wait();
+    if std::fs::metadata(&file).is_ok_and(|m| m.len() > 44) { Ok(()) } else { Err("Aufnahme fehlgeschlagen".into()) }
+}
+
+#[tauri::command(async)]
+fn mic_test_play() -> Result<(), String> {
+    let file = mic_test_file();
+    let played = Command::new("pw-play").arg(&file).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    let _ = std::fs::remove_file(&file);
+    match played {
+        Ok(s) if s.success() => Ok(()),
+        Ok(_) => Err("Wiedergabe fehlgeschlagen".into()),
+        Err(e) => Err(format!("pw-play: {e}")),
+    }
+}
+
 fn autostart_dir() -> PathBuf {
     env_dir("XDG_CONFIG_HOME", ".config").join("autostart")
 }
@@ -815,6 +854,8 @@ fn main() {
             app_info,
             hotkey_status,
             unmute_mic,
+            mic_test_record,
+            mic_test_play,
             set_hotkey,
             change_hotkey,
             quit_app

@@ -577,6 +577,21 @@ function buildMic() {
     cfg.mic.mute = false;
     paintAll();
   });
+  const test = $('mic-test');
+  test.addEventListener('click', async () => {
+    test.disabled = true;
+    let left = 5;
+    test.textContent = t('Aufnahme {0} s', left);
+    const count = setInterval(() => (test.textContent = t('Aufnahme {0} s', (left = Math.max(1, left - 1)))), 1000);
+    const recorded = await invoke('mic_test_record').then(() => true, (e) => (showError(e), false));
+    clearInterval(count);
+    if (recorded) {
+      test.textContent = t('Wiedergabe');
+      await invoke('mic_test_play').catch(showError);
+    }
+    test.textContent = t('Mikrofon testen');
+    test.disabled = false;
+  });
   $('make-default').addEventListener('click', async () => {
     // pin the real microphone first, otherwise "system default" would point Mixpilot at itself
     if (!cfg.input && devices.default_source && devices.default_source !== 'mixpilot_mic') {

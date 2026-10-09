@@ -60,6 +60,7 @@ Needs PipeWire with WirePlumber, the default on most current distributions
 - New apps land in the right channel automatically. Move one by hand and Mixpilot remembers it
 - ChatMix: one slider for the balance between game and voice chat
 - Master is your output device's own volume, the same one the volume keys change
+- A chosen output device that disappears falls back to the system default and comes back when it returns
 
 **Sound**
 
@@ -76,6 +77,7 @@ Needs PipeWire with WirePlumber, the default on most current distributions
 - Auto level, gain up to 200 %
 - Voice presets: Natural, Warm, Radio, Broadcast
 - Hear yourself, with meters for the raw and the processed signal
+- Microphone test: record five seconds and hear how the others hear you
 - Push-to-mute: one key mutes and unmutes the microphone from anywhere, picked in your desktop's own shortcut dialog (GNOME 48 or newer, KDE Plasma)
 
 **Automation**
@@ -92,8 +94,6 @@ The interface is available in English and German.
 - Push-to-talk: hold a key to speak
 - Profiles (Gaming, Movie, Night) with one click, optionally switched by the running app
 - Headphone correction based on measured frequency responses
-- Automatic fallback to speakers when the headset disconnects
-- Microphone test: record and play back
 - Compact mini mixer
 - Separate output device per channel
 - Separate stream mix for OBS
