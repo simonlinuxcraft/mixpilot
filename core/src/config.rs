@@ -235,18 +235,27 @@ pub fn parse(text: &str) -> Result<Config, String> {
     serde_json::from_value(v).map_err(|e| e.to_string())
 }
 
-/// Configs from before the Music channel carry their own copy of the old built-in rules, which
-/// would keep Spotify in Media. Swap in the current ones; user rules stay in front. Works on the
-/// raw JSON so keys only the app knows (own presets, seen_version) survive a write back.
+/// Configs from before the Music channel carry their own copy of the built-in rules, which sends
+/// Spotify and Rhythmbox to Media. Those two entries go, the built-in music rules come in before the
+/// first built-in Media rule; every other rule stays. Works on the raw JSON so keys only the app
+/// knows (own presets, seen_version) survive a write back.
 fn migrate(v: &mut serde_json::Value) -> bool {
     if v.get("music").is_some() {
         return false;
     }
-    let mut rules: Vec<serde_json::Value> =
-        v["rules"].as_array().map(|r| r.iter().filter(|r| r["user"] == true).cloned().collect()).unwrap_or_default();
-    rules.extend(Config::default().rules.iter().filter_map(|r| serde_json::to_value(r).ok()));
-    v["rules"] = rules.into();
     v["music"] = serde_json::to_value(Channel::default()).unwrap_or_default();
+    // get_mut, not v["rules"]: indexing would insert a null and break the config
+    let Some(rules) = v.get_mut("rules").and_then(|r| r.as_array_mut()) else { return true };
+    let builtin = |r: &serde_json::Value| r["user"] != true;
+    let music: Vec<Rule> = Config::default().rules.into_iter().filter(|r| r.channel == "music").collect();
+    rules.retain(|r| !(builtin(r) && r["channel"] == "media" && music.iter().any(|m| r["match"] == m.pattern.as_str())));
+    let new: Vec<serde_json::Value> = music
+        .iter()
+        .filter(|m| !rules.iter().any(|r| r["match"] == m.pattern.as_str()))
+        .filter_map(|m| serde_json::to_value(m).ok())
+        .collect();
+    let at = rules.iter().position(|r| builtin(r) && r["channel"] == "media").unwrap_or(rules.len());
+    rules.splice(at..at, new);
     true
 }
 
@@ -313,7 +322,8 @@ mod tests {
     fn old_config_gets_the_music_rules_and_keeps_user_rules_and_unknown_keys() {
         let mut v: serde_json::Value = serde_json::from_str(
             r#"{"eq_presets":{"Mine":[1,0,0,0,0,0,0,0,0,0]},
-                "rules":[{"match":"spotify","channel":"aux","user":true},{"match":"rhythmbox","channel":"media"}]}"#,
+                "rules":[{"match":"spotify","channel":"aux","user":true},{"match":"mytool","channel":"chat"},
+                         {"match":"rhythmbox","channel":"media"},{"match":"chromium","channel":"media"}]}"#,
         )
         .unwrap();
         assert!(migrate(&mut v));
@@ -321,8 +331,11 @@ mod tests {
         assert_eq!(v["eq_presets"]["Mine"][0], 1);
         let c: Config = serde_json::from_value(v).unwrap();
         assert_eq!(c.channel_for(&[Some("spotify"), None, None]), Some(4), "user rule still wins");
+        assert_eq!(c.channel_for(&[Some("mytool"), None, None]), Some(1), "hand-written rule stays");
         assert_eq!(c.channel_for(&[Some("rhythmbox"), None, None]), Some(3));
-        assert_eq!(c.channel_for(&[Some("firefox"), None, None]), Some(2));
+        // music rules sit before the browsers, so an Electron player reporting Chromium still goes to Music
+        assert_eq!(c.channel_for(&[Some("tidal-hifi"), Some("Chromium"), None]), Some(3));
+        assert_eq!(c.channel_for(&[Some("chromium"), None, None]), Some(2));
         assert_eq!(parse(r#"{"rules":[{"match":"spotify","channel":"media"}]}"#).unwrap().channel_for(&[Some("spotify"), None, None]), Some(3));
     }
 
