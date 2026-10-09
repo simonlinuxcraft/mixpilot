@@ -1,7 +1,7 @@
 name: mixpilot
 title: Mixpilot
 base: core24
-version: '0.0.1'
+version: '0.0.2'
 summary: Mixer, sound and microphone control for PipeWire
 license: GPL-3.0-only
 description: |

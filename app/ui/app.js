@@ -849,14 +849,28 @@ async function runChecks() {
 // Shown once after an update. `version` stays null until the release that ships it sets it.
 const NEWS = [
   {
-    version: null,
-    title: 'Eigene EQ-Presets',
-    items: [{
-      art: 'eq',
-      tab: 'sound',
-      title: 'Eigene EQ-Presets',
-      text: 'Stell den Equalizer nach deinem Geschmack ein und speichere die Kurve unter eigenem Namen. Bis zu vier eigene Presets, ein Klick holt sie zurück.',
-    }],
+    version: '0.0.2',
+    title: 'Push-to-Mute und Presets',
+    items: [
+      {
+        art: 'mute',
+        tab: 'mic',
+        title: 'Push-to-Mute',
+        text: 'Eine Taste schaltet dein Mikrofon stumm und wieder an, auch mitten im Spiel. Einschalten im Mikrofon-Tab, die Taste wählst du im Dialog deines Desktops.',
+      },
+      {
+        art: 'eq',
+        tab: 'sound',
+        title: 'Eigene EQ-Presets',
+        text: 'Stell den Equalizer nach deinem Geschmack ein und speichere die Kurve unter eigenem Namen. Bis zu vier eigene Presets, ein Klick holt sie zurück.',
+      },
+      {
+        art: 'mixer',
+        tab: 'mixer',
+        title: 'Neuer Look',
+        text: 'Der Equalizer zeigt seine Kurve als LED-Anzeige, und der Mixer nutzt das ganze Fenster. Zieh es größer, die Fader wachsen mit.',
+      },
+    ],
   },
 ];
 
@@ -871,13 +885,16 @@ function ledColumns(parent, cols, rows) {
   });
 }
 
-function headLeds(parent) {
-  const cols = ledColumns(parent, 4, 9);
-  const level = cols.map(() => Math.random() * 9);
+function headLeds(parent, n = 4, rows = 7) {
+  const cols = ledColumns(parent, n, rows);
+  const level = cols.map(() => Math.random() * rows);
   return () => cols.forEach((segs, c) => {
-    level[c] = Math.max(1, Math.min(9, level[c] + (Math.random() - 0.5) * 3));
-    // segments run bottom to top: blue, the top three amber
-    segs.forEach((s, i) => (s.className = 8 - i < level[c] ? (8 - i >= 6 ? 'mid' : 'low') : ''));
+    level[c] = Math.max(1, Math.min(rows, level[c] + (Math.random() - 0.5) * 3));
+    // segments run bottom to top: blue, the top two amber
+    segs.forEach((s, i) => {
+      const h = rows - 1 - i;
+      s.className = h < level[c] ? (h >= rows - 2 ? 'mid' : 'low') : '';
+    });
   });
 }
 
@@ -910,7 +927,39 @@ function eqArt(box) {
   };
 }
 
-const NEWS_ART = { eq: eqArt };
+// a voice on the meter, the key press cuts it
+function muteArt(box) {
+  const meter = el('div', 'hmeter news-meter');
+  const set = makeSegments(meter, 16);
+  const key = el('span', 'news-key', 'Pause');
+  const chip = el('span', 'news-chip');
+  const row = el('div', 'news-keyrow');
+  row.append(key, chip);
+  box.append(meter, row);
+  let tick = 0;
+  let muted = true;
+  let level = 0.5;
+  return () => {
+    const phase = tick++ % 40;
+    if (phase === 0) {
+      muted = !muted;
+      key.classList.add('down');
+      chip.textContent = muted ? t('stumm') : t('an');
+      chip.classList.toggle('muted', muted);
+    }
+    if (phase === 3) key.classList.remove('down');
+    level = Math.max(0.15, Math.min(0.85, level + (Math.random() - 0.45) * 0.3));
+    set(muted ? 0 : level);
+  };
+}
+
+function mixerArt(box) {
+  const grid = el('div', 'leds mixleds');
+  box.append(grid);
+  return headLeds(grid, 5);
+}
+
+const NEWS_ART = { eq: eqArt, mute: muteArt, mixer: mixerArt };
 let newsTimer = null;
 
 function openNews(entry, version) {

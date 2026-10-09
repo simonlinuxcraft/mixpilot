@@ -63,7 +63,7 @@ Needs PipeWire with WirePlumber, the default on most current distributions
 
 **Sound**
 
-- 10-band equalizer with presets (Flat, Bass, Voice, Gaming, Clear) and up to four of your own
+- 10-band equalizer shown as LED columns, with presets (Flat, Bass, Voice, Gaming, Clear) and up to four of your own
 - Bass boost below 100 Hz with clipping protection
 - Auto volume: Gentle evens out jumps between apps, Night lifts quiet parts and tames explosions
 - Hearing protection limiter with 1 ms lookahead
@@ -76,6 +76,7 @@ Needs PipeWire with WirePlumber, the default on most current distributions
 - Auto level, gain up to 200 %
 - Voice presets: Natural, Warm, Radio, Broadcast
 - Hear yourself, with meters for the raw and the processed signal
+- Push-to-mute: one key mutes and unmutes the microphone from anywhere, picked in your desktop's own shortcut dialog (GNOME 48 or newer, KDE Plasma)
 
 **Automation**
 
@@ -88,7 +89,7 @@ The interface is available in English and German.
 
 ## Planned
 
-- Global hotkey for microphone mute and push-to-talk
+- Push-to-talk: hold a key to speak
 - Profiles (Gaming, Movie, Night) with one click, optionally switched by the running app
 - Headphone correction based on measured frequency responses
 - Automatic fallback to speakers when the headset disconnects
