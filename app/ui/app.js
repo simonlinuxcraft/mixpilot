@@ -523,7 +523,36 @@ function buildMic() {
   bindSwitch('agc', () => cfg.mic.agc, (v) => (cfg.mic.agc = v));
   bindSwitch('gate', () => cfg.mic.gate, (v) => (cfg.mic.gate = v));
   bindSwitch('monitor', () => cfg.mic.monitor, (v) => (cfg.mic.monitor = v));
-  bindSwitch('mic-mute', () => cfg.mic.mute, (v) => (cfg.mic.mute = v));
+  // The desktop owns the key: switching on asks for it once in the desktop's own dialog.
+  const hkOn = $('hotkey-on');
+  const hk = $('hotkey');
+  let hkBusy = false;
+  const showHotkey = (s) => {
+    hkOn.setAttribute('aria-checked', String(s.on));
+    hkOn.disabled = !s.available || hkBusy;
+    hk.disabled = hkBusy;
+    $('hotkey-row').hidden = !s.on;
+    hk.textContent = s.trigger;
+    $('hotkey-text').textContent = hkBusy ? t('Wähle die Taste im Dialog deines Desktops.')
+      : !s.available ? t('Dein Desktop bietet Apps keine globalen Tastenkürzel an.')
+      : s.on ? t('Einmal drücken stumm, nochmal drücken wieder an. Auch im Spiel.')
+      : t('Eine Taste schaltet das Mikrofon stumm und wieder an, egal welches Fenster vorne ist.');
+  };
+  const refreshHotkey = () => invoke('hotkey_status').then(showHotkey).catch(() => showHotkey({ available: false, on: false, trigger: '' }));
+  const hotkeyCall = async (cmd, args) => {
+    hkBusy = true;
+    await refreshHotkey();
+    const s = await invoke(cmd, args).catch((e) => (showError(e), null));
+    hkBusy = false;
+    if (s && cfg.mic_hotkey !== s.on) {
+      cfg.mic_hotkey = s.on;
+      save();
+    }
+    refreshHotkey();
+  };
+  hkOn.addEventListener('click', () => hotkeyCall('set_hotkey', { on: hkOn.getAttribute('aria-checked') !== 'true' }));
+  hk.addEventListener('click', () => hotkeyCall('change_hotkey'));
+  refreshHotkey();
   $('make-default').addEventListener('click', async () => {
     // pin the real microphone first, otherwise "system default" would point Mixpilot at itself
     if (!cfg.input && devices.default_source && devices.default_source !== 'mixpilot_mic') {
@@ -729,7 +758,7 @@ async function tick() {
   micInLevel = lv.mic_in >= 0 ? decay(micInLevel, frac(lv.mic_in)) : 0;
   setMicMeter(micLevel);
   setMicInMeter(micInLevel);
-  $('mic-state').textContent = s.mic_active ? t('aktiv') : t('Mikrofon aus');
+  $('mic-state').textContent = !s.mic_active ? t('Mikrofon aus') : cfg.mic.mute ? t('stumm') : t('aktiv');
   paintEvents(s.events || []);
   apps = s.apps || [];
   paintApps();

@@ -126,6 +126,13 @@
             <button id="agc" class="switch" role="switch" aria-checked="true" aria-label="Auto-Pegel"><span></span></button>
           </div>
           <p class="hint">Gleichmäßig laut, ohne zu übersteuern.</p>
+          <div class="card-head line"><span class="title small">Push-to-Mute</span>
+            <button id="hotkey-on" class="switch" role="switch" aria-checked="false" aria-label="Push-to-Mute"><span></span></button>
+          </div>
+          <div class="card-head" id="hotkey-row" hidden><span class="title small">Taste</span>
+            <button id="hotkey" class="btn" aria-label="Taste für Push-to-Mute ändern"></button>
+          </div>
+          <p class="hint" id="hotkey-text"></p>
         </div>
         <div class="card">
           <span class="title">Stimme</span>
@@ -137,9 +144,6 @@
           <p class="hint">Sprechpausen werden still, auch Tippen und Klicken.</p>
           <div class="card-head"><span class="title small">Mithören</span>
             <button id="monitor" class="switch" role="switch" aria-checked="false" aria-label="Mithören"><span></span></button>
-          </div>
-          <div class="card-head"><span class="title small">Stumm</span>
-            <button id="mic-mute" class="switch" role="switch" aria-checked="false" aria-label="Mikrofon stumm"><span></span></button>
           </div>
         </div>
       </div>

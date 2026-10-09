@@ -10,6 +10,8 @@ use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
+mod hotkey;
+
 fn env_dir(var: &str, fallback: &str) -> PathBuf {
     std::env::var_os(var)
         .map(PathBuf::from)
@@ -674,6 +676,35 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+fn set_mic_mute(f: impl FnOnce(bool) -> bool) {
+    let _ = update_config(|c| {
+        if !c["mic"].is_object() {
+            c["mic"] = serde_json::json!({});
+        }
+        let now = c["mic"]["mute"].as_bool().unwrap_or(false);
+        c["mic"]["mute"] = Value::Bool(f(now));
+    });
+}
+
+fn toggle_mic_mute() {
+    set_mic_mute(|on| !on);
+}
+
+#[tauri::command]
+fn hotkey_status() -> hotkey::Status {
+    hotkey::status()
+}
+
+#[tauri::command(async)]
+fn set_hotkey(on: bool) -> Result<hotkey::Status, String> {
+    hotkey::send(if on { hotkey::Cmd::On } else { hotkey::Cmd::Off })
+}
+
+#[tauri::command(async)]
+fn change_hotkey() -> Result<hotkey::Status, String> {
+    hotkey::send(hotkey::Cmd::Change)
+}
+
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let cfg = get_config().unwrap_or(Value::Null);
     let flag = |ptr: &str, default: bool| cfg.pointer(ptr).and_then(Value::as_bool).unwrap_or(default);
@@ -702,15 +733,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             let on = auto2.is_checked().unwrap_or(true);
             let _ = update_config(|c| c["auto"] = Value::Bool(on));
         }
-        "mute" => {
-            let on = mute2.is_checked().unwrap_or(false);
-            let _ = update_config(|c| {
-                if !c["mic"].is_object() {
-                    c["mic"] = serde_json::json!({});
-                }
-                c["mic"]["mute"] = Value::Bool(on);
-            });
-        }
+        "mute" => set_mic_mute(|_| mute2.is_checked().unwrap_or(false)),
         "quit" => quit_app(app.clone()),
         _ => {}
     })
@@ -768,6 +791,9 @@ fn main() {
             mail_bug_report,
             setup_check,
             app_info,
+            hotkey_status,
+            set_hotkey,
+            change_hotkey,
             quit_app
         ])
         .on_window_event(|w, e| {
@@ -786,6 +812,8 @@ fn main() {
                 eprintln!("mixpilot: tray: {e}");
             }
             listen(handle.clone());
+            let restore = get_config().ok().and_then(|c| c["mic_hotkey"].as_bool()).unwrap_or(false);
+            hotkey::start(restore, toggle_mic_mute);
             // an older autostart entry that only started the core is replaced by the tray app
             if autostart_dir().join("mixpilot-core.desktop").is_file() {
                 let _ = set_autostart(true);
