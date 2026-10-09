@@ -100,6 +100,7 @@ const EN = {
   'Moderatorenstimme: nah, präsent, dicht komprimiert.': 'Presenter voice: close, present, tightly compressed.',
   'Sprechpausen werden still, auch Tippen und Klicken.': 'Pauses in speech go silent, typing and clicks too.',
   'Mithören': 'Hear yourself',
+  'Du hörst dich selbst im Kopfhörer, so wie die anderen dich hören.': 'You hear yourself in your headphones, the way the others hear you.',
   'Stumm': 'Mute',
   'Mikrofon stumm': 'Mute microphone',
   'aktiv': 'active',

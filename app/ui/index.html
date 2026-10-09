@@ -118,6 +118,10 @@
           <span class="title">Rauschunterdrückung</span>
           <div class="seg" id="noise" role="group" aria-label="Rauschunterdrückung"></div>
           <p class="hint">Tastatur, Lüfter und Straße raus, Stimme bleibt. Beim Sprechen sollte "Eingang" gelb werden, sonst die Verstärkung anpassen.</p>
+          <div class="card-head line"><span class="title small">Noise Gate</span>
+            <button id="gate" class="switch" role="switch" aria-checked="true" aria-label="Noise Gate"><span></span></button>
+          </div>
+          <p class="hint">Sprechpausen werden still, auch Tippen und Klicken.</p>
         </div>
         <div class="card">
           <div class="card-head"><span class="title">Verstärkung</span><input id="gain-text"></div>
@@ -126,25 +130,22 @@
             <button id="agc" class="switch" role="switch" aria-checked="true" aria-label="Auto-Pegel"><span></span></button>
           </div>
           <p class="hint">Gleichmäßig laut, ohne zu übersteuern.</p>
-          <div class="card-head line"><span class="title small">Push-to-Mute</span>
-            <button id="hotkey-on" class="switch" role="switch" aria-checked="false" aria-label="Push-to-Mute"><span></span></button>
+          <div class="card-head line"><span class="title small">Mithören</span>
+            <button id="monitor" class="switch" role="switch" aria-checked="false" aria-label="Mithören"><span></span></button>
           </div>
-          <div class="card-head" id="hotkey-row" hidden><span class="title small">Taste</span>
-            <button id="hotkey" class="btn" aria-label="Taste für Push-to-Mute ändern"></button>
-          </div>
-          <p class="hint" id="hotkey-text"></p>
+          <p class="hint">Du hörst dich selbst im Kopfhörer, so wie die anderen dich hören.</p>
         </div>
         <div class="card">
           <span class="title">Stimme</span>
           <div class="chips" id="voice" role="group" aria-label="Stimm-Preset"></div>
           <p class="hint" id="voice-text"></p>
-          <div class="card-head"><span class="title small">Noise Gate</span>
-            <button id="gate" class="switch" role="switch" aria-checked="true" aria-label="Noise Gate"><span></span></button>
+          <div class="card-head line"><span class="title small">Push-to-Mute</span>
+            <button id="hotkey-on" class="switch" role="switch" aria-checked="false" aria-label="Push-to-Mute"><span></span></button>
           </div>
-          <p class="hint">Sprechpausen werden still, auch Tippen und Klicken.</p>
-          <div class="card-head"><span class="title small">Mithören</span>
-            <button id="monitor" class="switch" role="switch" aria-checked="false" aria-label="Mithören"><span></span></button>
+          <div class="card-head" id="hotkey-row" hidden><span class="title small">Taste</span>
+            <button id="hotkey" class="btn small" aria-label="Taste für Push-to-Mute ändern"></button>
           </div>
+          <p class="hint" id="hotkey-text"></p>
         </div>
       </div>
     </section>
