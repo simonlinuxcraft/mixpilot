@@ -416,8 +416,15 @@ fn runtime_dir() -> PathBuf {
 fn single_instance(path: &Path) -> Option<std::fs::File> {
     // no truncate before the lock, a refused second instance must not wipe the running PID
     let mut file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(path).ok()?;
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        return None;
+    // the app probes the lock with a short shared lock many times a second; only a lock still held
+    // after 200 ms means another core
+    let mut tries = 0;
+    while unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        tries += 1;
+        if tries == 20 {
+            return None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
     let _ = file.set_len(0).and_then(|_| write!(file, "{}", std::process::id()));
     Some(file)

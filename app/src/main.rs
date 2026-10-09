@@ -111,6 +111,9 @@ fn core_pids() -> Vec<i32> {
 
 /// Starts the audio core detached, so it keeps running after the window is closed.
 fn start_core() -> Result<(), String> {
+    // ensure_core runs off the main thread now; two starts at once would race for the log and the lock
+    static STARTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _start = STARTING.lock().unwrap_or_else(|e| e.into_inner());
     replace_stale_core();
     if core_running() {
         return Ok(());
@@ -118,6 +121,8 @@ fn start_core() -> Result<(), String> {
     let bin = core_binary().ok_or("Audio-Kern nicht gefunden")?;
     let log_dir = env_dir("XDG_STATE_HOME", ".local/state").join("mixpilot");
     std::fs::create_dir_all(&log_dir).map_err(|e| e.to_string())?;
+    // keep the previous run, it holds the last words of a crashed core
+    let _ = std::fs::rename(log_dir.join("core.log"), log_dir.join("core.log.1"));
     let log = std::fs::File::create(log_dir.join("core.log")).map_err(|e| e.to_string())?;
     let mut child = Command::new(bin)
         .stdin(Stdio::null())
@@ -136,7 +141,7 @@ fn core_status() -> bool {
     core_running()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn ensure_core() -> Result<(), String> {
     start_core()
 }
@@ -201,7 +206,7 @@ struct Devices {
 
 /// Hardware outputs and microphones for the pickers, plus the current system defaults.
 /// Mixpilot's own nodes are left out: the output pointing into Mixpilot itself would have no way out.
-#[tauri::command]
+#[tauri::command(async)]
 fn list_devices() -> Result<Devices, String> {
     let out = Command::new("pw-dump").output().map_err(|e| format!("pw-dump: {e}"))?;
     let all: Value = serde_json::from_slice(&out.stdout).map_err(|_| "Geräteliste konnte nicht gelesen werden".to_string())?;
@@ -239,7 +244,7 @@ fn list_devices() -> Result<Devices, String> {
 }
 
 /// Makes a microphone the system default, the same way the GNOME sound settings do.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_default_source(name: String) -> Result<(), String> {
     let value = serde_json::json!({ "name": name }).to_string();
     let ok = Command::new("pw-metadata")
@@ -377,7 +382,7 @@ struct Master {
 }
 
 /// Master is the volume of the output device itself, the same one GNOME and the volume keys change.
-#[tauri::command]
+#[tauri::command(async)]
 fn get_master() -> Result<Master, String> {
     let sink = output_sink();
     let vol = pactl(&["get-sink-volume", &sink])?;
@@ -390,14 +395,14 @@ fn get_master() -> Result<Master, String> {
     Ok(Master { volume, mute })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_master(volume: u32) -> Result<(), String> {
     pactl(&["set-sink-volume", &output_sink(), &format!("{}%", volume.min(150))])
         .map(|_| ())
         .map_err(|e| { eprintln!("mixpilot: pactl: {e}"); "Lautstärke des Ausgabegeräts konnte nicht geändert werden".to_string() })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_master_mute(mute: bool) -> Result<(), String> {
     pactl(&["set-sink-mute", &output_sink(), if mute { "1" } else { "0" }])
         .map(|_| ())
@@ -413,7 +418,7 @@ struct Setup {
 }
 
 /// Everything the first-run window checks.
-#[tauri::command]
+#[tauri::command(async)]
 fn setup_check() -> Setup {
     let pipewire = Command::new("pw-cli").arg("info").arg("0").stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success());
     let running = |name: &str| Command::new("pgrep").arg("-x").arg(name).stdout(Stdio::null()).status().is_ok_and(|s| s.success());
@@ -508,8 +513,11 @@ fn system_info() -> String {
     )
 }
 
+/// The end of the core log, reaching into the previous run when this one has only just started.
 fn core_log_tail(lines: usize) -> String {
-    let text = std::fs::read_to_string(env_dir("XDG_STATE_HOME", ".local/state").join("mixpilot").join("core.log")).unwrap_or_default();
+    let dir = env_dir("XDG_STATE_HOME", ".local/state").join("mixpilot");
+    let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap_or_default();
+    let text = read("core.log.1") + &read("core.log");
     let all: Vec<&str> = text.lines().collect();
     all[all.len().saturating_sub(lines)..].join("\n")
 }
