@@ -581,6 +581,8 @@ function buildMic() {
   });
   const test = $('mic-test');
   test.addEventListener('click', async () => {
+    // a muted microphone would record five seconds of silence
+    if (cfg.mic.mute) return showError(t('Das Mikrofon ist stumm. Klick oben auf "stumm", um es wieder einzuschalten.'));
     test.disabled = true;
     let left = 5;
     test.textContent = t('Aufnahme {0} s', left);
@@ -799,7 +801,7 @@ async function tick() {
   micInLevel = lv.mic_in >= 0 ? decay(micInLevel, frac(lv.mic_in)) : 0;
   setMicMeter(micLevel);
   setMicInMeter(micInLevel);
-  $('mic-state').textContent = !s.mic_active ? t('Mikrofon aus') : cfg.mic.mute ? t('stumm') : t('aktiv');
+  $('mic-state').textContent = cfg.mic.mute ? t('stumm') : !s.mic_active ? t('Mikrofon aus') : t('aktiv');
   $('mic-state').disabled = !cfg.mic.mute;
   paintEvents(s.events || []);
   apps = s.apps || [];
@@ -961,7 +963,8 @@ function fitMinis() {
 }
 
 function eqArt(box) {
-  const card = mini(box, 0.5, 600);
+  // 288 px: the art cell is 300 px wide with 6 px padding
+  const card = mini(box, 0.48, 600);
   const name = el('span', 'muted');
   const title = el('span', 'title', 'Equalizer ');
   title.append(name);

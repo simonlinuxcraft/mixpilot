@@ -85,6 +85,7 @@ const EN = {
   'Aufnahme {0} s': 'Recording {0} s',
   'Wiedergabe': 'Playing back',
   'Aufnahme fehlgeschlagen': 'Recording failed',
+  'Das Mikrofon ist stumm. Klick oben auf "stumm", um es wieder einzuschalten.': 'The microphone is muted. Click "muted" at the top to switch it back on.',
   'Wiedergabe fehlgeschlagen': 'Playback failed',
   'Taste': 'Key',
   'Taste für Push-to-Mute ändern': 'Change the push-to-mute key',
