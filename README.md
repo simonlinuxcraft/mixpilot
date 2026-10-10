@@ -43,7 +43,7 @@ Needs PipeWire with WirePlumber, the default on most current distributions
 
 <table>
   <tr>
-    <td width="33%"><img src=".github/screenshots/sound.png" alt="Sound tab with equalizer, bass boost and auto volume"></td>
+    <td width="33%"><img src=".github/screenshots/sound.png" alt="Sound tab with EQ presets, bass boost and auto volume"></td>
     <td width="33%"><img src=".github/screenshots/mic.png" alt="Microphone tab with noise suppression, gain and voice presets"></td>
     <td width="33%"><img src=".github/screenshots/auto.png" alt="Automation tab with ducking, night mode and app assignments"></td>
   </tr>
