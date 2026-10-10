@@ -133,13 +133,13 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .num:focus { border-color: var(--acc2); background: var(--well); outline: none; }
 .value { align-self: center; }
 .head-right { display: flex; align-items: center; gap: 10px; }
-.btns { display: flex; gap: 6px; }
-.mute, .eqchip { flex: 1 1 0; min-height: 42px; border-radius: 6px; border: 1px solid var(--line2); background: var(--panel2); color: #c9c6bf; font-weight: 700; font-size: 12px; letter-spacing: 0.06em; cursor: pointer; }
+/* stacked: side by side, six strips at 1000 px left too little room for a preset name */
+.btns { display: flex; flex-direction: column; gap: 6px; }
+.mute, .eqchip { min-height: 36px; border-radius: 6px; border: 1px solid var(--line2); background: var(--panel2); color: #c9c6bf; font-weight: 700; font-size: 12px; letter-spacing: 0.06em; cursor: pointer; }
 .mute[aria-pressed="true"] { background: var(--red); color: #1a0705; border-color: var(--red); }
-.eqchip { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; font-weight: 600; letter-spacing: 0; font-size: 11px; color: var(--text); }
-.eqchip b { color: var(--muted); font-size: 10px; letter-spacing: 0.08em; }
-.eqchip { min-width: 0; padding: 0 4px; }
-.eqchip span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.eqchip { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; padding: 0 8px; font-weight: 600; letter-spacing: 0; font-size: 12px; color: var(--text); }
+.eqchip b { flex: none; color: var(--muted); font-size: 10px; letter-spacing: 0.08em; }
+.eqchip span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .eqmenu { position: fixed; z-index: 30; display: flex; flex-direction: column; gap: 2px; max-width: 240px; padding: 4px; border-radius: 8px; background: var(--panel2); border: 1px solid var(--line2); box-shadow: 0 8px 24px rgba(0, 0, 0, .5); }
 .eqmenu button { min-height: 34px; padding: 0 14px; border: none; border-radius: 6px; background: transparent; color: #c9c6bf; font-weight: 600; font-size: 13px; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .eqmenu button:hover { background: var(--panel); color: var(--text); }
