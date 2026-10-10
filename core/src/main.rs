@@ -538,7 +538,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 *pw::keys::MEDIA_TYPE => "Audio",
                 *pw::keys::MEDIA_CLASS => "Audio/Sink",
                 *pw::keys::NODE_NAME => ch.node_name(),
-                *pw::keys::NODE_DESCRIPTION => format!("Mixpilot {}", ch.label),
+                // the only channel name that differs in German, shown in the desktop's sound settings
+                *pw::keys::NODE_DESCRIPTION => format!("Mixpilot {}", if ch.id == "music" && german() { "Musik" } else { ch.label }),
                 *pw::keys::NODE_GROUP => "mixpilot",
                 *pw::keys::NODE_LINK_GROUP => "mixpilot",
                 "priority.session" => "0",

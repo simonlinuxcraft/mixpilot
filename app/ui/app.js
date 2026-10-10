@@ -848,6 +848,8 @@ function eventText(e) {
     const d = [...devices.sinks, ...devices.sources].find((x) => x.name === args[0]);
     args[0] = !args[0] ? t('System-Standard') : d ? d.description : args[0];
   }
+  // the core names channels in English, Music is the one with a German name
+  if (e.key === 'sorted' || e.key === 'moved') args[1] = CHANNELS.find(([id]) => id === String(args[1]).toLowerCase())?.[1] ?? args[1];
   // e.text: a core from before keyed events
   return e.text ?? t(EVENTS[e.key] || e.key || '', ...args);
 }
