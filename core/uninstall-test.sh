@@ -34,11 +34,11 @@ pw-metadata -n default 0 default.configured.audio.source '{"name":"mixpilot_mic"
 wait_for '[ "$(pactl get-default-source)" = mixpilot_mic ]'
 check "Mixpilot Mikrofon is the default" "$([ "$(pactl get-default-source)" = mixpilot_mic ] && echo ok || pactl get-default-source)"
 
-# an app that gets sorted into a channel (rule "spotify" -> media)
+# an app that gets sorted into a channel (rule "spotify" -> music)
 pw-play --properties '{ application.name = "spotify" application.process.binary = "spotify" }' --volume 0.1 /usr/share/sounds/alsa/Front_Center.wav >/dev/null 2>&1 &
 T=$!
 sleep 1
-pw-link -l | grep -q "mixpilot_media" && check "app sorted into Media" ok || check "app sorted into Media" "not linked"
+pw-link -l | grep -q "mixpilot_music" && check "app sorted into Music" ok || check "app sorted into Music" "not linked"
 
 kill "$D"; wait "$D" 2>/dev/null; D=
 sleep 1
