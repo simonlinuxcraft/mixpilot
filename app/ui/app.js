@@ -993,7 +993,7 @@ async function runChecks() {
 // Shown once after an update. `version` stays null until the release that ships it sets it.
 const NEWS = [
   {
-    version: null,
+    version: '0.0.3',
     title: 'Musik-Kanal und EQ pro Kanal',
     items: [
       {
