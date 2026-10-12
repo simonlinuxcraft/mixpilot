@@ -178,7 +178,9 @@ closed_gate=$(stats | cut -d' ' -f1)
 check "gate silences the pauses ($open_gate -> $closed_gate)" "$(less "$closed_gate" "$(python3 -c "print(max($open_gate*0.01, 0.00005))")")"
 cfg '{"mic":{"gate":false,"noise":"off","monitor":true}}'
 feed tone.wav
-for q in 256 1024; do
+# 4096 needs a raised max-quantum, some setups run that way to save power
+pw-metadata -n settings 0 clock.max-quantum 8192 >/dev/null
+for q in 256 1024 4096; do
   pw-metadata -n settings 0 clock.force-quantum $q >/dev/null
   sleep 1
   : >"$W/g.wav"
@@ -189,6 +191,7 @@ for q in 256 1024; do
   check "no dropouts when monitoring at quantum $q" "$(n=$(gaps "$W/m.wav"); [ "$n" = 0 ] && echo ok || echo "$n dropouts")"
 done
 pw-metadata -n settings 0 clock.force-quantum 0 >/dev/null
+pw-metadata -n settings 0 clock.max-quantum 0 >/dev/null
 cfg '{"mic":{"monitor":false}}'
 kill $FEED; FEED=
 sleep 3

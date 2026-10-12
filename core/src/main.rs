@@ -354,7 +354,7 @@ impl Elastic {
     /// Once per callback, before `next`. False means silence this time, nothing is taken.
     fn start(&mut self, ring: &mut VecDeque<f32>, frames: usize) -> bool {
         let goal = frames + FRAME / 2 + self.extra;
-        let len = ring.len();
+        let mut len = ring.len();
         if !self.playing {
             if len < goal + FRAME {
                 return false;
@@ -375,6 +375,7 @@ impl Elastic {
         if len > goal + 6 * FRAME {
             // a stall left a backlog: jump instead of catching up for seconds
             ring.drain(..len - goal - FRAME);
+            len = ring.len();
         }
         self.low = self.low.min(len);
         self.window += frames;
@@ -869,15 +870,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(bytes) = d.data() else { return };
             let start = off.min(bytes.len());
             let end = start.saturating_add(size).min(bytes.len());
-            let mut input = [0f32; 2048];
-            let n = ((end - start) / 4).min(input.len());
-            for (i, b) in bytes[start..start + n * 4].chunks_exact(4).enumerate() {
-                input[i] = f32::from_le_bytes([b[0], b[1], b[2], b[3]]);
-            }
             let mut out = lock(&mo);
             let monitor = p.monitor.load(Relaxed);
             let mut mon = lock(&mm);
-            let (peak, in_peak) = mic_dsp.process(&input[..n], &p, &mut out, monitor.then_some(&mut *mon));
+            let (mut peak, mut in_peak) = (0f32, 0f32);
+            // a quantum above 2048 (raised max-quantum) comes in pieces, the stack buffer stays small
+            for chunk in bytes[start..end].chunks(2048 * 4) {
+                let mut input = [0f32; 2048];
+                let n = chunk.len() / 4;
+                for (i, b) in chunk.chunks_exact(4).enumerate() {
+                    input[i] = f32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+                }
+                let (pk, ip) = mic_dsp.process(&input[..n], &p, &mut out, monitor.then_some(&mut *mon));
+                peak = peak.max(pk);
+                in_peak = in_peak.max(ip);
+            }
             drop(mon);
             drop(out);
             lv.raise(LV_MIC, peak);
@@ -1109,6 +1116,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // microphone on demand
         if merr.replace(false) {
             let _ = mic.disconnect();
+            // leftovers would read as a late microphone and play stale voice on the next start
+            lock(&mic_out).clear();
             mic_on.set(false);
             mic_wait.set(RETRY_TICKS);
         }
@@ -1136,6 +1145,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             mic_idle.set(mic_idle.get() + 1);
             if mic_idle.get() >= RETRY_TICKS {
                 let _ = mic.disconnect();
+                lock(&mic_out).clear();
                 mic_on.set(false);
                 event(&ev, "mic_paused", &[]);
             }
