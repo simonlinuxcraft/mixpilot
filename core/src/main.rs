@@ -35,8 +35,8 @@ use dsp::{run5, sanitize, Agc, Biquad, Chain5, DeEsser, Envelope, Eq10, Gate, Le
 
 /// ~100 ms of stereo audio. Anything older is dropped so latency cannot creep up.
 const RING_MAX: usize = 48_000 / 10 * 2;
-/// ~100 ms of mono microphone audio.
-const MIC_RING_MAX: usize = 48_000 / 10;
+/// ~250 ms of mono microphone audio, enough to start reading at a quantum of 8192.
+const MIC_RING_MAX: usize = 48_000 / 4;
 const BASS_FREQ: f32 = 100.0;
 const FRAME: usize = DenoiseState::FRAME_SIZE;
 /// main loop tick; config polling, level snapshots and reconnects all run on it
@@ -330,23 +330,77 @@ impl MicDsp {
     }
 }
 
-/// Holds a ring at a small, steady latency: waits until `need` samples are buffered before playing
-/// (so uneven 480-sample RNNoise blocks never run dry) and drops the oldest if it grows past `max`.
-struct Prime(bool);
+/// Plays a ring the microphone fills in 480-sample RNNoise blocks on its own clock. That clock is
+/// often another device's and runs a little faster or slower than the reader's, and either side may
+/// come first in a cycle. The reading speed follows the lowest fill level seen before a read (cubic
+/// interpolation, at most 0.5 % off), so the ring neither runs dry nor grows. A dropout buys 10 ms
+/// more headroom, given back after ten clean minutes.
+#[derive(Default)]
+struct Elastic {
+    playing: bool,
+    /// position of the next sample between ring[0] and ring[1]
+    pos: f32,
+    /// the sample before ring[0]
+    prev: f32,
+    speed: f32,
+    low: usize,
+    window: usize,
+    extra: usize,
+    clean: usize,
+    frames: usize,
+}
 
-impl Prime {
-    fn ready(&mut self, ring: &mut VecDeque<f32>, frames: usize, need: usize, max: usize) -> bool {
-        if ring.len() > max {
-            let n = ring.len() - need;
-            ring.drain(..n);
+impl Elastic {
+    /// Once per callback, before `next`. False means silence this time, nothing is taken.
+    fn start(&mut self, ring: &mut VecDeque<f32>, frames: usize) -> bool {
+        let goal = frames + FRAME / 2 + self.extra;
+        let len = ring.len();
+        if !self.playing {
+            if len < goal + FRAME {
+                return false;
+            }
+            *self = Self { playing: true, low: usize::MAX, extra: self.extra, frames, ..Self::default() };
         }
-        if !self.0 && ring.len() >= need {
-            self.0 = true;
+        // what this read takes, plus the interpolation's look-ahead
+        if len < (self.pos + frames as f32 * (1.0 + self.speed)) as usize + 3 {
+            // an empty ring is a paused microphone and a larger read a new quantum, neither is jitter
+            if len > 0 && frames == self.frames {
+                self.extra = (self.extra + FRAME).min(4 * FRAME);
+            }
+            self.clean = 0;
+            self.playing = false;
+            return false;
         }
-        if self.0 && ring.len() < frames {
-            self.0 = false;
+        self.frames = frames;
+        if len > goal + 6 * FRAME {
+            // a stall left a backlog: jump instead of catching up for seconds
+            ring.drain(..len - goal - FRAME);
         }
-        self.0
+        self.low = self.low.min(len);
+        self.window += frames;
+        if self.window >= 24_000 {
+            self.speed = ((self.low as f32 - goal as f32) / 96_000.0).clamp(-0.005, 0.005);
+            self.low = usize::MAX;
+            self.window = 0;
+        }
+        self.clean += frames;
+        if self.clean >= 600 * 48_000 {
+            self.extra = self.extra.saturating_sub(FRAME);
+            self.clean = 0;
+        }
+        true
+    }
+
+    fn next(&mut self, ring: &mut VecDeque<f32>) -> f32 {
+        let x = |i: usize| ring.get(i).copied().unwrap_or(0.0);
+        let (xm, x0, x1, x2, t) = (self.prev, x(0), x(1), x(2), self.pos);
+        let y = x0 + 0.5 * t * (x1 - xm + t * (2.0 * xm - 5.0 * x0 + 4.0 * x1 - x2 + t * (3.0 * (x0 - x1) + x2 - xm)));
+        self.pos += 1.0 + self.speed;
+        while self.pos >= 1.0 {
+            self.prev = ring.pop_front().unwrap_or(0.0);
+            self.pos -= 1.0;
+        }
+        y
     }
 }
 
@@ -604,7 +658,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let out_retry = Rc::new(Cell::new(false));
     let out_reported = Rc::new(Cell::new(false));
     let mut mix = Mix::new();
-    let mut mon_prime = Prime(false);
+    let mut mon_el = Elastic::default();
     let (p, lv, out_rings, mon_ring) = (params.clone(), levels.clone(), rings.clone(), mic_mon.clone());
     let (retry, reported) = (out_retry.clone(), out_reported.clone());
     let out_listener = output
@@ -651,10 +705,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let mut mon = lock(&mon_ring);
             let mon_play = if monitor {
-                mon_prime.ready(&mut mon, frames, frames + FRAME, frames + 3 * FRAME)
+                mon_el.start(&mut mon, frames)
             } else {
                 mon.clear();
-                mon_prime.0 = false;
+                mon_el = Elastic::default();
                 false
             };
             let mut peaks = [0f32; LV_MASTER + 2];
@@ -698,7 +752,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let m = mix.master.next(target_master);
                 l *= m;
                 r *= m;
-                if mon_play && let Some(v) = mon.pop_front() {
+                if mon_play {
+                    let v = mon_el.next(&mut mon);
                     l += v * 0.8;
                     r += v * 0.8;
                 }
@@ -751,7 +806,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // about listeners. Links whose output is this node are counted instead (registry below).
     let src_links: Rc<RefCell<HashSet<u32>>> = Rc::new(RefCell::new(HashSet::new()));
     let src_out = mic_out.clone();
-    let mut src_prime = Prime(false);
+    let mut src_el = Elastic::default();
     let src_listener = mic_src
         .add_local_listener_with_user_data(())
         .process(move |s, _| {
@@ -764,9 +819,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 frames = frames.min(req);
             }
             let mut ring = lock(&src_out);
-            let play = src_prime.ready(&mut ring, frames, frames + FRAME, frames + 3 * FRAME);
+            let play = src_el.start(&mut ring, frames);
             for f in 0..frames {
-                let v = if play { ring.pop_front().unwrap_or(0.0) } else { 0.0 };
+                let v = if play { src_el.next(&mut ring) } else { 0.0 };
                 bytes[f * 4..f * 4 + 4].copy_from_slice(&v.to_le_bytes());
             }
             drop(ring);
@@ -1179,6 +1234,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+
     #[test]
     fn refused_second_instance_keeps_pid() {
         let path = std::env::temp_dir().join(format!("mixpilot-lock-test-{}", std::process::id()));
@@ -1187,5 +1244,87 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), std::process::id().to_string());
         drop(held);
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// The microphone ring between two clocks: the capture side pushes whole 480-sample blocks once
+    /// per `qi` cycle on a clock `ppm` off, the reader takes `qo` per cycle; every callback runs up
+    /// to `jitter` seconds late. The signal is a slow ramp, so a skipped or repeated stretch shows as
+    /// a jump. Returns callbacks with a dropout or a jump after 3 s of settling, and the mean fill.
+    fn simulate(qi: usize, qo: usize, ppm: f64, jitter: f64, secs: f64, mut read: impl FnMut(&mut VecDeque<f32>, &mut [f32]) -> bool) -> (usize, f64) {
+        use super::{FRAME, MIC_RING_MAX};
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut rand = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let (pin, pout) = (qi as f64 / (48_000.0 * (1.0 + ppm * 1e-6)), qo as f64 / 48_000.0);
+        let (mut tin, mut tout, mut jin, mut jout) = (0.0, 0.0, rand() * jitter, rand() * jitter);
+        let (mut ring, mut out) = (VecDeque::new(), vec![0f32; qo]);
+        let (mut acc, mut n, mut last) = (0usize, 0usize, None::<f32>);
+        let (mut bad_reads, mut fill, mut reads) = (0, 0.0, 0);
+        let step = 1.0 / 4800.0;
+        while tout < secs {
+            if tin + jin <= tout + jout {
+                acc += qi;
+                for _ in 0..acc / FRAME * FRAME {
+                    if ring.len() >= MIC_RING_MAX {
+                        ring.pop_front();
+                    }
+                    ring.push_back((n % 4800) as f32 * step);
+                    n += 1;
+                }
+                acc %= FRAME;
+                tin += pin;
+                jin = rand() * jitter;
+                continue;
+            }
+            let settled = tout > 3.0;
+            if settled {
+                fill += ring.len() as f64;
+                reads += 1;
+            }
+            let mut bad = !read(&mut ring, &mut out);
+            if bad {
+                last = None;
+            } else {
+                for &y in &out {
+                    if let Some(p) = last {
+                        let inner = |v: f32| (0.01..0.99).contains(&v);
+                        if inner(p) && inner(y) && !(0.5 * step..1.5 * step).contains(&(y - p)) {
+                            bad = true;
+                        }
+                    }
+                    last = Some(y);
+                }
+            }
+            if settled && bad {
+                bad_reads += 1;
+            }
+            tout += pout;
+            jout = rand() * jitter;
+        }
+        (bad_reads, fill / reads as f64)
+    }
+
+    #[test]
+    fn microphone_ring_survives_two_clocks() {
+        use super::Elastic;
+        for (qi, qo, ppm, jitter) in [(1024, 1024, 0.0, 0.0), (1024, 1024, 200.0, 0.001), (1024, 1024, -200.0, 0.001), (256, 1024, 500.0, 0.001), (1024, 256, -500.0, 0.001), (480, 2048, 100.0, 0.002), (1024, 1024, 0.0, 0.003)] {
+            let mut el = Elastic::default();
+            let (bad, fill) = simulate(qi, qo, ppm, jitter, 300.0, |ring, out| {
+                if !el.start(ring, out.len()) {
+                    out.fill(0.0);
+                    return false;
+                }
+                out.iter_mut().for_each(|o| *o = el.next(ring));
+                true
+            });
+            println!("in {qi} out {qo} {ppm:+} ppm jitter {:.0} ms: {bad} bad reads in 5 min, mean fill {fill:.0}", jitter * 1000.0);
+            // one dropout may teach it the headroom, after that it has to hold, at most ~40 ms behind
+            assert!(bad <= 2, "{bad} bad reads with in {qi} out {qo} {ppm} ppm");
+            assert!(fill < qo as f64 + 2000.0, "mean fill {fill:.0} with in {qi} out {qo} {ppm} ppm");
+        }
     }
 }

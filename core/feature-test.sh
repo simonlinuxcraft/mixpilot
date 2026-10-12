@@ -182,10 +182,10 @@ for q in 256 1024; do
   pw-metadata -n settings 0 clock.force-quantum $q >/dev/null
   sleep 1
   : >"$W/g.wav"
-  timeout 2 pw-record --target mixpilot_mic --rate 48000 --channels 1 --format s16 "$W/g.wav" >/dev/null 2>&1
+  timeout 4 pw-record --target mixpilot_mic --rate 48000 --channels 1 --format s16 "$W/g.wav" >/dev/null 2>&1
   check "no dropouts in Mixpilot Mikrofon at quantum $q" "$(n=$(gaps "$W/g.wav"); [ "$n" = 0 ] && echo ok || echo "$n dropouts")"
   : >"$W/m.wav"
-  timeout 2 pw-record -P '{ stream.capture.sink=true }' --target mp_test_out --rate 48000 --channels 1 --format s16 "$W/m.wav" >/dev/null 2>&1
+  timeout 4 pw-record -P '{ stream.capture.sink=true }' --target mp_test_out --rate 48000 --channels 1 --format s16 "$W/m.wav" >/dev/null 2>&1
   check "no dropouts when monitoring at quantum $q" "$(n=$(gaps "$W/m.wav"); [ "$n" = 0 ] && echo ok || echo "$n dropouts")"
 done
 pw-metadata -n settings 0 clock.force-quantum 0 >/dev/null
