@@ -47,22 +47,22 @@ fn core_binary() -> Option<PathBuf> {
 /// Must match STATE_PROTO in the core.
 const STATE_PROTO: u64 = 5;
 
-/// A current core rewrites state.json every 50 ms and reports the protocol this app speaks.
-fn state_fresh() -> bool {
-    let path = runtime_dir().join("mixpilot").join("state.json");
-    let recent = std::fs::metadata(&path)
-        .and_then(|m| m.modified())
-        .is_ok_and(|t| t.elapsed().is_ok_and(|d| d.as_millis() < 2000));
-    recent
-        && std::fs::read(&path)
-            .ok()
-            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-            .and_then(|v| v.get("proto").and_then(Value::as_u64))
-            == Some(STATE_PROTO)
+fn age(path: &std::path::Path) -> Option<std::time::Duration> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()?.elapsed().ok()
 }
 
-/// A core that holds the lock but writes no current state is an older version (after an update) or hung.
-/// It is stopped by PID so a current one can take over.
+/// A running core rewrites state.json every 50 ms. The protocol it speaks, if it wrote within 2 s.
+fn fresh_proto() -> Option<u64> {
+    let path = runtime_dir().join("mixpilot").join("state.json");
+    if age(&path)? > std::time::Duration::from_secs(2) {
+        return None;
+    }
+    let v: Value = serde_json::from_slice(&std::fs::read(&path).ok()?).ok()?;
+    Some(v.get("proto").and_then(Value::as_u64).unwrap_or(0))
+}
+
+/// A core that speaks another protocol is an older version (after an update), one that has written
+/// nothing for 10 s is hung. Either is stopped by PID so a current one can take over.
 fn replace_stale_core() {
     // Once per app run at most: if the only core binary around speaks another protocol, replacing it
     // again on every window open would cut the audio each time.
@@ -70,14 +70,25 @@ fn replace_stale_core() {
     if !core_running() || REPLACED.load(std::sync::atomic::Ordering::Relaxed) {
         return;
     }
+    let mut other = false;
     for _ in 0..30 {
-        if state_fresh() {
-            return;
+        match fresh_proto() {
+            Some(p) if p == STATE_PROTO => return,
+            Some(_) => {
+                other = true;
+                break;
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(50)),
         }
-        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    // a core still starting or a busy machine can leave the state a few seconds old, that is no reason
+    // to cut the audio; the lock is rewritten when a core starts
+    let quiet = |name: &str| age(&runtime_dir().join(name)).is_none_or(|a| a > std::time::Duration::from_secs(10));
+    if !other && !(quiet("mixpilot.lock") && quiet("mixpilot/state.json")) {
+        return;
     }
     REPLACED.store(true, std::sync::atomic::Ordering::Relaxed);
-    eprintln!("mixpilot: replacing a core without current state");
+    eprintln!("mixpilot: replacing an older or hung core");
     stop_core();
 }
 

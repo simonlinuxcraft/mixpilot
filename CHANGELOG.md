@@ -4,6 +4,7 @@
 
 - The audio core comes back by itself when PipeWire restarts or the core crashes, so channels and the Mixpilot microphone return within seconds instead of staying gone until Mixpilot is restarted. The core log keeps earlier runs, so the cause of a crash is still in a bug report
 - No more rare dropouts and clicks when monitoring the microphone or recording from the Mixpilot microphone. When the microphone and the headset are separate devices, their clocks run a little apart; Mixpilot now follows that drift instead of letting a buffer run dry or overflow every few minutes
+- Opening the window while the computer is busy no longer restarts a working audio core, which cut the sound for a moment. Only an older or hung core is replaced
 
 ## 0.0.3 - Music and channel EQ
 
