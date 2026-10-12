@@ -5,23 +5,43 @@ version: '0.0.4'
 summary: Mixer, sound and microphone control for PipeWire
 license: GPL-3.0-only
 description: |
-  Mixpilot sorts your apps into Game, Chat, Media and Aux channels with their own faders, a ChatMix balance and ducking. It adds an equalizer, bass boost, automatic loudness and a hearing protection limiter, and cleans up your microphone with noise suppression, auto gain and voice presets. It keeps running in the background with a tray icon.
+  Mixpilot sorts every app into one of five channels: Game, Chat, Media, Music and Aux. Each channel has its own fader, mute button and equalizer. Discord lands in Chat, Spotify in Music, the browser in Media, Steam and Proton games in Game. Move an app by hand once and Mixpilot keeps it there.
+
+  Sound
+  - ChatMix: one slider shifts the balance between game and voice chat
+  - Ducking lowers the other channels while someone talks in Chat
+  - 10-band equalizer per channel: pick a preset for each channel, tune the built-in ones or save up to four of your own
+  - Bass boost and clearer voices for the whole mix
+  - Auto volume (Gentle or Night) evens out loud and quiet parts
+  - Limiter on the output against sudden loud peaks
+
+  Microphone
+  - Noise suppression (RNNoise), noise gate with automatic threshold and auto gain
+  - Voice presets: Natural, Warm, Radio, Broadcast
+  - Shows up as "Mixpilot Microphone" in Discord, OBS and any other app
+  - Hear yourself to check how you sound
+  - Microphone test: record five seconds and play them back
+  - Push-to-mute: one key mutes and unmutes the microphone from anywhere
+
+  Automation
+  - Autopilot switch: sorting, ducking and night mode on or off with one click
+  - Night mode by time of day: quieter peaks, no bass
+  - Keeps running in the background with a tray icon to mute the mic or toggle Autopilot
+
+  Needs PipeWire with WirePlumber, the default on Ubuntu since 22.10 and on most current distributions.
 
   After installing, connect the two permissions Mixpilot asks for on first start:
 
       sudo snap connect mixpilot:pipewire && sudo snap connect mixpilot:audio-record
 
-  Planned:
-
-  - Global hotkey for microphone mute and push-to-talk
+  Planned
   - Profiles (Gaming, Movie, Night) with one click, optionally switched by the running app
-  - Save your own EQ presets
   - Headphone correction based on measured frequency responses
-  - Automatic fallback to speakers when the headset disconnects
-  - Microphone test: record and play back
   - Compact mini mixer
   - Separate output device per channel
   - Separate stream mix for OBS
+
+  Found a bug? Use the bug button in the title bar or "Report a bug" in the tray menu.
 grade: stable
 confinement: strict
 icon: snap/gui/mixpilot.png
