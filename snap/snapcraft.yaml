@@ -5,16 +5,14 @@ version: '0.0.4'
 summary: Mixer, sound and microphone control for PipeWire
 license: GPL-3.0-only
 description: |
-  Mixpilot sorts your apps into Game, Chat, Media and Aux channels with their own
-  faders, a ChatMix balance and ducking. It adds an equalizer, bass boost, automatic
-  loudness and a hearing protection limiter, and cleans up your microphone with noise
-  suppression, auto gain and voice presets. It keeps running in the background with
-  a tray icon.
+  Mixpilot sorts your apps into Game, Chat, Media and Aux channels with their own faders, a ChatMix balance and ducking. It adds an equalizer, bass boost, automatic loudness and a hearing protection limiter, and cleans up your microphone with noise suppression, auto gain and voice presets. It keeps running in the background with a tray icon.
 
   After installing, connect the two permissions Mixpilot asks for on first start:
-  sudo snap connect mixpilot:pipewire && sudo snap connect mixpilot:audio-record
+
+      sudo snap connect mixpilot:pipewire && sudo snap connect mixpilot:audio-record
 
   Planned:
+
   - Global hotkey for microphone mute and push-to-talk
   - Profiles (Gaming, Movie, Night) with one click, optionally switched by the running app
   - Save your own EQ presets
