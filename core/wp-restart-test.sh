@@ -58,6 +58,26 @@ flaps=$(grep -c "output connected again" "$B/daemon.log")
 check "no log flapping while there was no device" "$([ "$flaps" -le 1 ] && echo ok || echo "$flaps reconnect lines")"
 check "daemon still running" "$(kill -0 $D 2>/dev/null && echo ok || echo exited)"
 
+# PipeWire itself restarts (systemctl --user restart pipewire, an update, a crash): the daemon must
+# end with code 2 so the app's watchdog starts a fresh one, and that one must come back complete.
+kill "$W" "$S"; wait "$W" "$S" 2>/dev/null; W= S=
+i=0; while kill -0 "$D" 2>/dev/null && [ $i -lt 30 ]; do sleep 0.1; i=$((i + 1)); done
+if kill -0 "$D" 2>/dev/null; then code=alive; kill "$D"; else wait "$D"; code=$?; fi
+D=
+check "daemon exits with 2 when PipeWire goes away" "$([ "$code" = 2 ] && echo ok || echo "exit $code")"
+pipewire >"$B/pw2.log" 2>&1 & S=$!
+sleep 1
+wireplumber -p mptest >"$B/wp3.log" 2>&1 & W=$!
+wait_md
+XDG_RUNTIME_DIR="$B/run" ./target/release/mixpilot-core >"$B/daemon2.log" 2>&1 & D=$!
+sleep 1
+pw-cat -p -P '{ node.name=mp_wp_three application.name=mp_wp_three }' "$tone" >/dev/null 2>&1 & T1=$!
+sleep 1.5
+sinks=$(pw-cli ls Node 2>/dev/null | grep -cE 'node.name = "mixpilot_(game|chat|media|music|aux)"')
+check "fresh daemon brings every channel back" "$([ "$sinks" = 5 ] && echo ok || echo "$sinks channels")"
+check "route written after PipeWire restart" "$([ "$(routes)" = 1 ] && echo ok || echo "routes: $(routes)")"
+check "fresh daemon still running" "$(kill -0 $D 2>/dev/null && echo ok || echo exited)"
+
 echo
 [ $FAILS = 0 ] && echo "ALL OK" || { echo "$FAILS FAILED"; cat "$B/daemon.log"; }
 exit $FAILS

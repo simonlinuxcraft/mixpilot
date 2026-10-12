@@ -505,8 +505,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let events: Events = Rc::new(RefCell::new(VecDeque::new()));
     log!("config {}", path.display());
 
-    // Set when the server connection or a channel fails: exit non-zero so the supervisor
-    // (snap/systemd user service) starts a fresh instance instead of hanging silently.
+    // Set when the server connection or a channel fails: exit non-zero instead of hanging silently,
+    // the app's watchdog starts a fresh instance.
     let failed = Rc::new(Cell::new(false));
     let fail = {
         let (failed, ml) = (failed.clone(), mainloop.downgrade());

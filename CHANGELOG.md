@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The audio core comes back by itself when PipeWire restarts or the core crashes, so channels and the Mixpilot microphone return within seconds instead of staying gone until Mixpilot is restarted. The core log keeps earlier runs, so the cause of a crash is still in a bug report
+
 ## 0.0.3 - Music and channel EQ
 
 - Music channel: music players like Spotify, Rhythmbox or Amberol get their own channel next to Media, so music can have its own volume and sound. Video players and browsers stay in Media. Existing setups move the music players over on the first start, your own assignments stay as they are

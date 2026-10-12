@@ -109,11 +109,17 @@ fn core_pids() -> Vec<i32> {
     pids
 }
 
+// ensure_core runs off the main thread and the watchdog has its own; two starts at once would race
+// for the log and the lock. Quitting holds it too, so no start slips in after the core was stopped.
+static STARTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static QUITTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Starts the audio core detached, so it keeps running after the window is closed.
 fn start_core() -> Result<(), String> {
-    // ensure_core runs off the main thread now; two starts at once would race for the log and the lock
-    static STARTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _start = STARTING.lock().unwrap_or_else(|e| e.into_inner());
+    if QUITTING.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok(());
+    }
     replace_stale_core();
     if core_running() {
         return Ok(());
@@ -121,9 +127,12 @@ fn start_core() -> Result<(), String> {
     let bin = core_binary().ok_or("Audio-Kern nicht gefunden")?;
     let log_dir = env_dir("XDG_STATE_HOME", ".local/state").join("mixpilot");
     std::fs::create_dir_all(&log_dir).map_err(|e| e.to_string())?;
-    // keep the previous run, it holds the last words of a crashed core
-    let _ = std::fs::rename(log_dir.join("core.log"), log_dir.join("core.log.1"));
-    let log = std::fs::File::create(log_dir.join("core.log")).map_err(|e| e.to_string())?;
+    // appended, so the last words of a crashed core survive the watchdog's next attempts
+    let log_path = log_dir.join("core.log");
+    if std::fs::metadata(&log_path).is_ok_and(|m| m.len() > 256 * 1024) {
+        let _ = std::fs::rename(&log_path, log_dir.join("core.log.1"));
+    }
+    let log = std::fs::OpenOptions::new().create(true).append(true).open(&log_path).map_err(|e| e.to_string())?;
     let mut child = Command::new(bin)
         .stdin(Stdio::null())
         .stdout(log.try_clone().map_err(|e| e.to_string())?)
@@ -131,9 +140,42 @@ fn start_core() -> Result<(), String> {
         .process_group(0)
         .spawn()
         .map_err(|e| e.to_string())?;
+    // keep the start lock until the core holds its own, or the next caller would start a second one
+    for _ in 0..50 {
+        if core_running() || !matches!(child.try_wait(), Ok(None)) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
     // reap it if it exits while the window is open, so no zombie is left
     std::thread::spawn(move || child.wait());
     Ok(())
+}
+
+/// The core ends itself when PipeWire goes away (a restart, an update, a crash) or a channel fails,
+/// and nothing else would bring it back. Waits longer each time it dies young, so a system without
+/// PipeWire or a snap without its permissions is not hammered.
+fn watch_core() {
+    use std::time::{Duration, Instant};
+    std::thread::spawn(|| {
+        let mut delay = Duration::from_secs(2);
+        let mut last = Instant::now();
+        loop {
+            std::thread::sleep(Duration::from_secs(2));
+            if core_running() {
+                if last.elapsed() > Duration::from_secs(60) {
+                    delay = Duration::from_secs(2);
+                }
+            } else if last.elapsed() >= delay {
+                eprintln!("mixpilot: audio core not running, starting it again");
+                if let Err(e) = start_core() {
+                    eprintln!("mixpilot: {e}");
+                }
+                last = Instant::now();
+                delay = (delay * 2).min(Duration::from_secs(60));
+            }
+        }
+    });
 }
 
 #[tauri::command]
@@ -715,7 +757,11 @@ fn tray_available() -> bool {
 /// Ends Mixpilot completely: the core stops and apps play on their normal device again.
 #[tauri::command]
 fn quit_app(app: AppHandle) {
-    stop_core();
+    {
+        let _start = STARTING.lock().unwrap_or_else(|e| e.into_inner());
+        QUITTING.store(true, std::sync::atomic::Ordering::Relaxed);
+        stop_core();
+    }
     let _ = std::fs::remove_file(ipc_socket());
     app.exit(0);
 }
@@ -820,6 +866,7 @@ fn main() {
     if let Err(e) = start_core() {
         eprintln!("mixpilot: {e}");
     }
+    watch_core();
     let app = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             core_status,
