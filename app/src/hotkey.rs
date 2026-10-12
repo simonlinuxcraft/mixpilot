@@ -82,16 +82,17 @@ pub fn start(restore: bool, on_press: fn()) {
             true
         });
         let mut session = None;
-        if restore {
-            if let Err(e) = bind(&c, &mut session) {
-                eprintln!("mixpilot: hotkey: {e}");
-            }
+        if restore && let Err(e) = bind(&c, &mut session) {
+            eprintln!("mixpilot: hotkey: {e}");
         }
         loop {
             if let Ok((cmd, reply)) = rx.try_recv() {
                 let r = match cmd {
                     Cmd::On => bind(&c, &mut session),
-                    Cmd::Off => Ok(close(&c, &mut session)),
+                    Cmd::Off => {
+                        close(&c, &mut session);
+                        Ok(())
+                    }
                     Cmd::Change => change(&c, &mut session),
                 };
                 let _ = reply.send(r.map(|_| status()));

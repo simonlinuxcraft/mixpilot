@@ -671,11 +671,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 retry.set(true);
             }
             // Paused also shows up briefly before WirePlumber reports "no target", so only Streaming counts
-            StreamState::Streaming => {
-                if reported.replace(false) {
-                    log!("output connected again");
-                }
-            }
+            StreamState::Streaming if reported.replace(false) => log!("output connected again"),
             _ => {}
         })
         .process(move |s, _| {
@@ -1060,7 +1056,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // night mode, checked every 10 s
-        if tick % 200 == 0 {
+        if tick.is_multiple_of(200) {
             let n = rcfg.borrow().auto && rcfg.borrow().night.active_at(local_time().0);
             if n != nightc.get() {
                 nightc.set(n);

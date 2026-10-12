@@ -683,11 +683,9 @@ mod tests {
         for i in 0..48_000 {
             g2.run(speechy(0.2, i % 4800));
         }
-        let mut last = 0.0;
-        for i in 0..(48_000 / 10) {
-            last = g2.run(if i == 0 { 0.0 } else { 0.0 });
+        for _ in 0..(48_000 / 10) {
+            g2.run(0.0);
         }
-        let _ = last;
         assert!(g2.gain > 0.9, "gate closed during hold: {}", g2.gain);
     }
 

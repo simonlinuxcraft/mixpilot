@@ -214,10 +214,10 @@ fn set_config(mut cfg: Value) -> Result<(), String> {
         return Err("config must be a JSON object".into());
     }
     let _lock = CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(mute) = get_config().ok().and_then(|c| c.pointer("/mic/mute").cloned()) {
-        if cfg["mic"].is_object() {
-            cfg["mic"]["mute"] = mute;
-        }
+    if let Some(mute) = get_config().ok().and_then(|c| c.pointer("/mic/mute").cloned())
+        && cfg["mic"].is_object()
+    {
+        cfg["mic"]["mute"] = mute;
     }
     write_config(&cfg)
 }
@@ -673,10 +673,10 @@ fn show_window(app: &AppHandle) {
         bring_to_front(&w);
         return;
     }
-    if let Some(cfg) = app.config().app.windows.first() {
-        if let Err(e) = WebviewWindowBuilder::from_config(app, cfg).and_then(|b| b.initialization_script(lang_script()).build()) {
-            eprintln!("mixpilot: window: {e}");
-        }
+    if let Some(cfg) = app.config().app.windows.first()
+        && let Err(e) = WebviewWindowBuilder::from_config(app, cfg).and_then(|b| b.initialization_script(lang_script()).build())
+    {
+        eprintln!("mixpilot: window: {e}");
     }
 }
 
@@ -898,11 +898,12 @@ fn main() {
         ])
         .on_window_event(|w, e| {
             // without a tray there is no way back to a hidden window: minimize instead
-            if let tauri::WindowEvent::CloseRequested { api, .. } = e {
-                if w.label() == "main" && !tray_available() {
-                    api.prevent_close();
-                    let _ = w.minimize();
-                }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = e
+                && w.label() == "main"
+                && !tray_available()
+            {
+                api.prevent_close();
+                let _ = w.minimize();
             }
         })
         .setup(move |app| {
