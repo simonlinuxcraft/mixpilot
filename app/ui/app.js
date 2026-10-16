@@ -93,14 +93,19 @@ async function setMaster(v) {
   masterBusy = false;
   masterTouched = Date.now();
 }
+let masterPolling = false;
 async function pollMaster() {
   // never read back while the user is moving the fader or right after: the device may not be there yet
-  if (document.hidden || masterBusy || Date.now() - masterTouched < 1200) return;
+  // and never start a second read while one waits for a slow pipewire-pulse
+  if (document.hidden || masterBusy || masterPolling || Date.now() - masterTouched < 1200) return;
+  masterPolling = true;
   try {
     const m = await invoke('get_master');
     Object.assign(masterDev, m, { known: true });
   } catch {
     masterDev.known = false;
+  } finally {
+    masterPolling = false;
   }
   paintAll();
 }

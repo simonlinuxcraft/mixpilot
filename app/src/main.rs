@@ -6,6 +6,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
@@ -167,7 +168,6 @@ fn start_core() -> Result<(), String> {
 /// and nothing else would bring it back. Waits longer each time it dies young, so a system without
 /// PipeWire or a snap without its permissions is not hammered.
 fn watch_core() {
-    use std::time::{Duration, Instant};
     std::thread::spawn(|| {
         let mut delay = Duration::from_secs(2);
         let mut last = Instant::now();
@@ -274,11 +274,8 @@ fn list_devices() -> Value {
 #[tauri::command(async)]
 fn set_default_source(name: String) -> Result<(), String> {
     let value = serde_json::json!({ "name": name }).to_string();
-    let ok = Command::new("pw-metadata")
-        .args(["-n", "default", "0", "default.configured.audio.source", &value, "Spa:String:JSON"])
-        .stdout(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success());
+    let ok = output_within(Command::new("pw-metadata").args(["-n", "default", "0", "default.configured.audio.source", &value, "Spa:String:JSON"]), CMD_LIMIT)
+        .is_ok_and(|o| o.status.success());
     if ok { Ok(()) } else { Err("Standard-Mikrofon konnte nicht gesetzt werden".into()) }
 }
 
@@ -415,12 +412,30 @@ fn output_sink() -> String {
         .unwrap_or_else(|| "@DEFAULT_SINK@".into())
 }
 
+/// PipeWire tools answer in milliseconds; a hung pipewire-pulse keeps pactl waiting for 30 s.
+const CMD_LIMIT: Duration = Duration::from_secs(2);
+
+/// Command::output with a time limit. The pipes are read after the exit, so only for short outputs.
+fn output_within(cmd: &mut Command, limit: Duration) -> std::io::Result<std::process::Output> {
+    let mut child = cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let end = Instant::now() + limit;
+    while child.try_wait()?.is_none() {
+        if Instant::now() >= end {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, format!("no answer within {} s", limit.as_secs())));
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    child.wait_with_output()
+}
+
 /// Volume commands run one after another, never in parallel.
 static PACTL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn pactl(args: &[&str]) -> Result<String, String> {
     let _serial = PACTL.lock().unwrap_or_else(|e| e.into_inner());
-    let out = Command::new("pactl").args(args).env("LC_ALL", "C").output().map_err(|e| format!("pactl: {e}"))?;
+    let out = output_within(Command::new("pactl").args(args).env("LC_ALL", "C"), CMD_LIMIT).map_err(|e| format!("pactl: {e}"))?;
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
     }
@@ -472,7 +487,7 @@ struct Setup {
 /// Everything the first-run window checks.
 #[tauri::command(async)]
 fn setup_check() -> Setup {
-    let pipewire = Command::new("pw-cli").arg("info").arg("0").stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success());
+    let pipewire = output_within(Command::new("pw-cli").args(["info", "0"]), CMD_LIMIT).is_ok_and(|o| o.status.success());
     let running = |name: &str| Command::new("pgrep").arg("-x").arg(name).stdout(Stdio::null()).status().is_ok_and(|s| s.success());
     let conflicts = [("easyeffects", "Easy Effects"), ("jamesdsp", "JamesDSP"), ("jdsp-gui", "JamesDSP")]
         .iter()
@@ -506,7 +521,7 @@ const BUG_PROXY: Option<&str> = option_env!("MIXPILOT_BUG_URL");
 const BUG_KEY: Option<&str> = option_env!("MIXPILOT_WEB3FORMS_KEY");
 
 fn first_line_with(cmd: &str, args: &[&str], needle: &str) -> Option<String> {
-    let out = Command::new(cmd).args(args).env("LC_ALL", "C").output().ok()?;
+    let out = output_within(Command::new(cmd).args(args).env("LC_ALL", "C"), CMD_LIMIT).ok()?;
     String::from_utf8_lossy(&out.stdout).lines().find(|l| l.contains(needle)).map(|l| l.trim().to_string())
 }
 
@@ -582,7 +597,8 @@ struct BugInfo {
     log: String,
 }
 
-#[tauri::command]
+// async: system_info asks pactl, which must never block the main thread (window and tray)
+#[tauri::command(async)]
 fn bug_info() -> BugInfo {
     BugInfo { can_send: BUG_PROXY.is_some() || BUG_KEY.is_some(), email: BUG_EMAIL.into(), info: system_info(), log: core_log_tail(60) }
 }
@@ -653,7 +669,7 @@ async fn send_bug_report(report: BugReport) -> Result<(), String> {
 }
 
 /// Fallback without a configured endpoint: the user's mail program with the report filled in.
-#[tauri::command]
+#[tauri::command(async)]
 fn mail_bug_report(report: BugReport) {
     let enc = |t: &str| t.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect::<String>();
     // mail programs cut very long mailto links, so the log is left out here
@@ -987,6 +1003,16 @@ mod tests {
         // SAFETY: single-threaded test
         unsafe { std::env::set_var("XDG_CONFIG_HOME", "/x") };
         assert_eq!(config_path(), std::path::Path::new("/x/mixpilot/config.json"));
+    }
+
+    #[test]
+    fn commands_end_within_the_limit() {
+        let t = Instant::now();
+        let e = output_within(Command::new("sleep").arg("5"), Duration::from_millis(200)).unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::TimedOut);
+        assert!(t.elapsed() < Duration::from_secs(1));
+        let out = output_within(Command::new("echo").arg("hi"), CMD_LIMIT).unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "hi\n");
     }
 
     #[test]
