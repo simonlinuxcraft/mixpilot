@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- A damaged settings file no longer leaves Mixpilot stuck on the welcome screen with the tray and the mute key doing nothing. The core keeps the file as config.json.broken-<date> next to it, loads the last working settings or the defaults, and the window says so once. A device name with a NUL character in the settings no longer crashes the core
+
 ## 0.0.4 - Stability fixes
 
 - The audio core comes back by itself when PipeWire restarts or the core crashes, so channels and the Mixpilot microphone return within seconds instead of staying gone until Mixpilot is restarted. The core log keeps earlier runs, so the cause of a crash is still in a bug report

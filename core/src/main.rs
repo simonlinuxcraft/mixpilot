@@ -416,6 +416,10 @@ struct Router {
 
 impl Router {
     fn set(&mut self, id: u32, target: &str) {
+        // pipewire-rs panics on a NUL byte, inside a loop callback that aborts the core
+        if target.contains('\0') {
+            return;
+        }
         if let Some((_, _, m)) = &self.md {
             m.set_property(id, "target.object", None, Some(target));
         }
@@ -1013,7 +1017,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // One timer does all the control work: config reload, night mode, device targets,
     // microphone on demand, reconnects and the state file the app reads for meters and lists.
     // stat() + state file every 50 ms is cheap enough; a socket would only pay off with more traffic
-    let last = Cell::new(config::stamp(&path));
+    // None: the first tick reads the file once more, which also catches a write since the start
+    let last = Cell::new(None);
+    // last text that loaded, and the tick since which the file has been unreadable
+    let (good, broken) = (RefCell::new(None::<String>), Cell::new(None::<u64>));
     let ticks = Cell::new(0u64);
     let out_ticks = Cell::new(0u32);
     let (out_seen, out_want) = (Cell::new(u32::MAX), RefCell::new(None::<String>));
@@ -1032,8 +1039,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let now = config::stamp(&path);
         if now != last.get() {
             last.set(now);
-            match config::load(&path) {
-                Ok(c) => {
+            let text = std::fs::read_to_string(&path).map_err(|e| e.to_string());
+            match text.and_then(|t| config::parse(&t).map(|c| (c, t))) {
+                Ok((c, t)) => {
+                    broken.set(None);
+                    *good.borrow_mut() = Some(t);
                     let n = c.auto && c.night.active_at(local_time().0);
                     p.apply(&c, n);
                     nightc.set(n);
@@ -1058,8 +1068,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     drop(r);
                     *rcfg.borrow_mut() = c;
                 }
-                Err(e) => log!("config not applied, keeping previous: {e}"),
+                Err(e) => {
+                    log!("config not applied, keeping previous: {e}");
+                    broken.set(Some(tick));
+                }
             }
+        }
+        // an editor writing in place is done within milliseconds, a file broken for 1 s stays broken
+        if broken.get().is_some_and(|t| tick - t >= 20) {
+            broken.set(None);
+            config::recover(&path, good.borrow().as_deref());
         }
 
         // night mode, checked every 10 s

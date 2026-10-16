@@ -105,6 +105,7 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .end { width: 42px; font-weight: 600; font-size: 13px; }
 .end.right { text-align: right; }
 .hint { margin: 0; font-size: 12px; color: var(--muted); }
+.path { overflow-wrap: anywhere; }
 .error { margin: 0; padding: 10px 14px; border-radius: 8px; background: #3a1714; color: #ffd2cc; }
 
 /* mixer strips */

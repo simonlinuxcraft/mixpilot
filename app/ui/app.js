@@ -150,7 +150,7 @@ function defaults(c) {
   c.night.from ??= 22;
   c.night.to ??= 7;
   c.auto_route ??= true;
-  c.rules ??= [];
+  if (!Array.isArray(c.rules)) c.rules = [];
   return c;
 }
 
@@ -178,6 +178,7 @@ async function pollConfig() {
   if (Date.now() - lastSave < 500) return;
   const c = await invoke('get_config').catch(() => null);
   if (!c || Date.now() - lastSave < 500) return;
+  if (c.config_reset && c.config_reset !== cfg.config_reset) showReset(c.config_reset);
   const auto = c.auto ?? true;
   const mute = c.mic?.mute ?? false;
   if (auto !== cfg.auto || mute !== cfg.mic.mute) {
@@ -1280,6 +1281,17 @@ function bindChrome() {
     info.hidden = true;
     invoke('open_support').catch(showError);
   });
+  const reset = $('reset-info');
+  const closeReset = async () => {
+    reset.hidden = true;
+    // null tells set_config the note was shown; the file had been in use, so setup is not needed
+    cfg.config_reset = null;
+    cfg.setup_done = true;
+    cfg.seen_version ??= (await invoke('app_info').catch(() => null))?.version;
+    save();
+  };
+  $('reset-ok').addEventListener('click', closeReset);
+  reset.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeReset(); });
   $('bug').addEventListener('click', () => invoke('open_bug_report').catch(showError));
   const about = $('about');
   const closeAbout = () => (about.hidden = true);
@@ -1398,10 +1410,19 @@ async function main() {
   await invoke('ensure_core').catch(() => {});
   // the core writes the config on its first start
   cfg = await loadConfig(14);
-  if (cfg && cfg.setup_done) {
+  if (cfg && (cfg.setup_done || cfg.config_reset)) {
     await init();
-    newsAfterUpdate();
+    if (cfg.config_reset) showReset(cfg.config_reset);
+    else newsAfterUpdate();
   } else await openSetup();
+}
+
+// The core kept an unreadable settings file under this name and put a working one in its place.
+function showReset(path) {
+  cfg.config_reset = path;
+  $('reset-file').textContent = path;
+  $('reset-info').hidden = false;
+  $('reset-info').firstElementChild.focus();
 }
 
 main().catch(showError);

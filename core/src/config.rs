@@ -287,26 +287,67 @@ fn migrate_file(path: &Path) {
         return;
     };
     if v.is_object() && migrate(&mut v) {
-        crate::write_atomic(path, &serde_json::to_vec_pretty(&v).unwrap_or_default());
+        if let Err(e) = save(path, &v) {
+            crate::log!("cannot write {}: {e}", path.display());
+        }
         crate::log!("config: added the Music channel and its rules");
     }
 }
 
-/// A broken file is reported and left untouched, never overwritten with defaults.
+/// Temp file, fsync, rename: a power cut right after leaves the old or the new file, never an empty one.
+fn save(path: &Path, v: &impl Serialize) -> std::io::Result<()> {
+    use std::io::Write;
+    std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))?;
+    let tmp = path.with_extension("tmp");
+    let mut f = std::fs::File::create(&tmp)?;
+    f.write_all(&serde_json::to_vec_pretty(v).unwrap_or_default())?;
+    f.sync_all()?;
+    std::fs::rename(&tmp, path)
+}
+
+/// config.json.broken-20261016-153012, local time, next to the file.
+fn backup_path(path: &Path) -> PathBuf {
+    let tm = unsafe {
+        let t = libc::time(std::ptr::null_mut());
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&t, &mut tm);
+        tm
+    };
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let (y, mo, d, h, mi, s) = (tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+    path.with_file_name(format!("{name}.broken-{y:04}{mo:02}{d:02}-{h:02}{mi:02}{s:02}"))
+}
+
+/// Moves an unreadable file aside and puts `good` (the last text that loaded) or the defaults in its
+/// place, with a note the window shows once. A file that is gone was deleted on purpose and stays gone.
+pub fn recover(path: &Path, good: Option<&str>) {
+    let backup = backup_path(path);
+    if std::fs::rename(path, &backup).is_err() {
+        return;
+    }
+    let mut v = good
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
+        .filter(serde_json::Value::is_object)
+        .unwrap_or_else(|| serde_json::to_value(Config::default()).unwrap_or_default());
+    v["config_reset"] = backup.display().to_string().into();
+    match save(path, &v) {
+        Ok(()) => crate::log!("config: unreadable file kept as {}, {} loaded", backup.display(), if good.is_some() { "last working one" } else { "defaults" }),
+        Err(e) => crate::log!("cannot write {}: {e}", path.display()),
+    }
+}
+
+/// A broken file is kept as a backup and replaced with the defaults, so every reader works again.
 pub fn load_or_create(path: &Path) -> Config {
     if path.exists() {
         migrate_file(path);
         return load(path).unwrap_or_else(|e| {
-            crate::log!("{} unreadable ({e}), using defaults", path.display());
+            crate::log!("{} unreadable ({e})", path.display());
+            recover(path, None);
             Config::default()
         });
     }
     let cfg = Config::default();
-    let write = || -> std::io::Result<()> {
-        std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))?;
-        std::fs::write(path, serde_json::to_string_pretty(&cfg).unwrap_or_default())
-    };
-    if let Err(e) = write() {
+    if let Err(e) = save(path, &cfg) {
         crate::log!("cannot write {}: {e}", path.display());
     }
     cfg
@@ -395,5 +436,44 @@ mod tests {
         assert!(parse("{").is_err());
         assert!(parse(r#"{"master":1e309}"#).is_err());
         assert_eq!(parse("{}").unwrap().master, 100.0);
+    }
+
+    fn backups(dir: &Path) -> Vec<PathBuf> {
+        std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).filter(|p| p.to_string_lossy().contains(".broken-")).collect()
+    }
+
+    #[test]
+    fn broken_file_is_kept_and_replaced() {
+        let dir = std::env::temp_dir().join(format!("mixpilot-recover-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("config.json");
+        let note = |p: &Path| {
+            let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();
+            v["config_reset"].as_str().map(PathBuf::from)
+        };
+
+        // at start: the defaults take its place, the broken text survives next to it
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, "").unwrap();
+        assert_eq!(load_or_create(&path).master, 100.0);
+        let b = backups(&dir);
+        assert_eq!(b.len(), 1);
+        assert_eq!(std::fs::read_to_string(&b[0]).unwrap(), "");
+        assert_eq!(note(&path), Some(b[0].clone()));
+        assert!(load(&path).is_ok());
+        std::fs::remove_file(&b[0]).unwrap();
+
+        // while running: the last text that loaded comes back, keys only the app knows included
+        std::fs::write(&path, r#"{"master":"loud"}"#).unwrap();
+        recover(&path, Some(r#"{"master":40,"setup_done":true}"#));
+        let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!((v["master"].as_f64(), v["setup_done"].as_bool()), (Some(40.0), Some(true)));
+        assert_eq!(note(&path), Some(backups(&dir)[0].clone()));
+
+        // a deleted file was deleted on purpose
+        std::fs::remove_file(&path).unwrap();
+        recover(&path, Some("{}"));
+        assert!(!path.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

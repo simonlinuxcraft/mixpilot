@@ -218,6 +218,8 @@ const EN = {
   'Wenn dir die App hilft und du etwas zurückgeben möchtest, geht das über Ko-fi. Das öffnet sich in deinem Browser, bezahlt wird direkt bei Ko-fi bzw. PayPal. Mixpilot sieht keine Zahlungsdaten.': 'If the app helps you and you want to give something back, you can do so on Ko-fi. It opens in your browser, payment happens directly at Ko-fi or PayPal. Mixpilot never sees payment data.',
   'Fehler melden und Ideen schicken hilft genauso.': 'Reporting bugs and sending ideas helps just as much.',
   'Weiter zu Ko-fi': 'Continue to Ko-fi',
+  'Einstellungen ersetzt': 'Settings replaced',
+  'Die Einstellungsdatei konnte nicht gelesen werden. Mixpilot hat sie gesichert und eine funktionierende Fassung geladen. Prüf kurz, ob alles passt.': 'The settings file could not be read. Mixpilot kept a copy and loaded a working version. Please check that everything looks right.',
   'Version {0}, {1}': 'Version {0}, {1}',
   'Datenschutz': 'Privacy',
   'Mixpilot verarbeitet deinen Ton nur auf diesem Rechner und sendet von sich aus nichts. Nur ein Fehlerbericht, den du selbst abschickst, verlässt den Rechner: deine Beschreibung, falls angegeben Fehlermeldungen und deine E-Mail, und wenn du es erlaubst, Systeminfos und das Protokoll des Audio-Kerns.': 'Mixpilot processes your audio only on this computer and sends nothing on its own. Only a bug report you send yourself leaves the computer: your description, error messages and your email if you entered them, and, if you allow it, system info and the audio core log.',

@@ -225,18 +225,36 @@ fn set_config(mut cfg: Value) -> Result<(), String> {
         return Err("config must be a JSON object".into());
     }
     let _lock = CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(mute) = get_config().ok().and_then(|c| c.pointer("/mic/mute").cloned())
+    keep_from_disk(&mut cfg, get_config().ok().as_ref());
+    write_config(&cfg)
+}
+
+/// The core's note about a replaced broken file stays until the window has shown it and sends null.
+fn keep_from_disk(cfg: &mut Value, disk: Option<&Value>) {
+    if let Some(mute) = disk.and_then(|c| c.pointer("/mic/mute")).cloned()
         && cfg["mic"].is_object()
     {
         cfg["mic"]["mute"] = mute;
     }
-    write_config(&cfg)
+    match cfg.get("config_reset") {
+        None => {
+            if let Some(note) = disk.and_then(|c| c.get("config_reset")).cloned() {
+                cfg["config_reset"] = note;
+            }
+        }
+        Some(Value::Null) => {
+            cfg.as_object_mut().map(|o| o.remove("config_reset"));
+        }
+        Some(_) => {}
+    }
 }
 
-/// Write to a temp file and rename, so the core never reads a half-written file.
+/// Write to a temp file and rename, so the core never reads a half-written file. No fsync, it costs
+/// 5 to 15 ms per fader step on the main thread; the core repairs a file a power cut breaks.
 fn write_config(cfg: &Value) -> Result<(), String> {
     let path = config_path();
-    let tmp = path.with_extension("json.tmp");
+    // own name per process, two writers never share a temp file
+    let tmp = path.with_extension(format!("json.tmp.{}", std::process::id()));
     std::fs::write(&tmp, serde_json::to_vec_pretty(&cfg).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
 }
@@ -969,5 +987,21 @@ mod tests {
         // SAFETY: single-threaded test
         unsafe { std::env::set_var("XDG_CONFIG_HOME", "/x") };
         assert_eq!(config_path(), std::path::Path::new("/x/mixpilot/config.json"));
+    }
+
+    #[test]
+    fn mute_and_reset_note_come_from_disk() {
+        let disk = serde_json::json!({ "mic": { "mute": true }, "config_reset": "/c/config.json.broken-1" });
+        let mut cfg = serde_json::json!({ "mic": { "mute": false } });
+        keep_from_disk(&mut cfg, Some(&disk));
+        assert_eq!(cfg, disk);
+        // shown: the window sends null and the note goes
+        let mut cfg = serde_json::json!({ "mic": { "mute": true }, "config_reset": null });
+        keep_from_disk(&mut cfg, Some(&disk));
+        assert_eq!(cfg, serde_json::json!({ "mic": { "mute": true } }));
+        // unreadable file on disk: the window's copy is written as it is
+        let mut cfg = serde_json::json!({ "mic": { "mute": false } });
+        keep_from_disk(&mut cfg, None);
+        assert_eq!(cfg, serde_json::json!({ "mic": { "mute": false } }));
     }
 }

@@ -93,12 +93,36 @@ for c in '' 'null' '[]' '{"game":{"volume":"loud"}}' '{"game":{"volume":1e309}}'
 done
 check "alive after garbage configs" "$(alive)"
 
+echo "-- broken config"
+C="$W/cfg/mixpilot/config.json"
+backups() { ls "$W/cfg/mixpilot" | grep -c '^config.json.broken-'; }
+# ok when the config has master/bass as given and a note naming a backup
+note() { python3 -I -c "import json,sys; c=json.load(open(sys.argv[1])); print('ok' if (c.get('master'),c.get('bass'))==(float(sys.argv[2]),float(sys.argv[3])) and '.broken-' in str(c.get('config_reset')) else c)" "$C" "$1" "$2" 2>&1 | tail -1; }
+good='{"output":"mixpilot_test_hw","master":80,"bass":30,"rules":[]}'
+printf '%s' "$good" >"$C"; sleep 0.5
+printf '%s' '{"output":"x\u0000y","rules":[]}' >"$C"; sleep 0.5
+check "alive with a NUL in the output name" "$(alive)"
+printf '%s' "$good" >"$C"; sleep 0.5
+b0=$(backups)
+printf '%s' '{"bass":' >"$C"; sleep 2
+check "broken file kept as a backup" "$( [ "$(backups)" = $((b0 + 1)) ] && echo ok || echo "$b0 -> $(backups) backups")"
+check "last working config back, with a note" "$(note 80 30)"
+check "alive after the repair" "$(alive)"
+
 echo "-- kill -9"
 kill -9 "$D"; wait "$D" 2>/dev/null; D=
 sleep 1
 left=$(pw-cli ls Node | grep -cE 'node.name = "mixpilot_(game|chat|media|music|aux|output)"')
 check "nodes gone after kill -9" "$( [ "$left" = 0 ] && echo ok || echo "$left left")"
 check "default sink unchanged" "$( [ "$(pactl get-default-sink)" = "$DEF_SINK" ] && echo ok || echo "now $(pactl get-default-sink)")"
+
+echo "-- start with an empty config (power cut right after a save)"
+b0=$(backups)
+: >"$C"
+start
+check "alive after starting with an empty config" "$(alive)"
+check "empty file kept as a backup" "$( [ "$(backups)" = $((b0 + 1)) ] && echo ok || echo "$b0 -> $(backups) backups")"
+check "defaults in its place, with a note" "$(note 100 0)"
 
 echo
 [ $FAILS = 0 ] && echo "ALL OK" || echo "$FAILS FAILED (log $W/daemon.log)"
