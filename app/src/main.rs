@@ -742,6 +742,13 @@ fn hand_over(background: bool) -> bool {
     }
 }
 
+/// Held for the whole run by the one tray app of the session. None: another start holds it.
+fn app_lock(path: &std::path::Path) -> std::io::Result<Option<std::fs::File>> {
+    std::fs::create_dir_all(path.parent().unwrap_or(path))?;
+    let f = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(path)?;
+    Ok((unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0).then_some(f))
+}
+
 fn listen(app: AppHandle) {
     let path = ipc_socket();
     let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
@@ -905,9 +912,26 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
 fn main() {
     let background = std::env::args().any(|a| a == "--background");
-    if hand_over(background) {
-        return;
-    }
+    // The socket answers only once the window exists. A start before that (autostart plus a click at
+    // login) waits for it instead of becoming a second tray app with its own core watchdog.
+    let mut waited = 0;
+    let _lock = loop {
+        if hand_over(background) {
+            return;
+        }
+        match app_lock(&runtime_dir().join("mixpilot").join("app.lock")) {
+            Ok(Some(f)) => break Some(f),
+            Ok(None) if waited < 100 => {
+                waited += 1;
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Ok(None) => return,
+            Err(e) => {
+                eprintln!("mixpilot: app lock: {e}");
+                break None;
+            }
+        }
+    };
     if let Err(e) = start_core() {
         eprintln!("mixpilot: {e}");
     }
@@ -1003,6 +1027,17 @@ mod tests {
         // SAFETY: single-threaded test
         unsafe { std::env::set_var("XDG_CONFIG_HOME", "/x") };
         assert_eq!(config_path(), std::path::Path::new("/x/mixpilot/config.json"));
+    }
+
+    #[test]
+    fn one_app_holds_the_lock() {
+        let path = std::env::temp_dir().join(format!("mixpilot-app-lock-test-{}", std::process::id())).join("app.lock");
+        let first = app_lock(&path).unwrap();
+        assert!(first.is_some());
+        assert!(app_lock(&path).unwrap().is_none());
+        drop(first);
+        assert!(app_lock(&path).unwrap().is_some());
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]

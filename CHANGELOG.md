@@ -4,6 +4,7 @@
 
 - A damaged settings file no longer leaves Mixpilot stuck on the welcome screen with the tray and the mute key doing nothing. The core keeps the file as config.json.broken-<date> next to it, loads the last working settings or the defaults, and the window says so once. A device name with a NUL character in the settings no longer crashes the core
 - A hanging PulseAudio service (pipewire-pulse) no longer freezes Mixpilot. Volume reads give up after 2 seconds instead of 30 and never pile up, so the device list, microphone test and push-to-mute keep working, and "Report a bug" opens right away
+- Starting Mixpilot twice at nearly the same time, for example by autostart and a click at login, no longer runs two copies with two tray icons, where quitting one let the other start the audio core again
 
 ## 0.0.4 - Stability fixes
 
