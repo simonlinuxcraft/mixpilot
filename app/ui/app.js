@@ -1004,6 +1004,29 @@ async function runChecks() {
 // Shown once after an update. `version` stays null until the release that ships it sets it.
 const NEWS = [
   {
+    version: '0.0.5',
+    title: 'Stabiler im Alltag',
+    items: [
+      {
+        art: 'mixer',
+        tab: 'mixer',
+        title: 'Läuft einfach weiter',
+        text: 'Startet PipeWire neu, ist der Ton nach Sekunden von selbst wieder da. Ein hängender Audiodienst friert Mixpilot nicht mehr ein, und doppelt gestartet läuft es trotzdem nur einmal.',
+      },
+      {
+        art: 'monitor',
+        tab: 'mic',
+        title: 'Mithören ohne Aussetzer',
+        text: 'Sind Mikrofon und Headset getrennte Geräte, laufen ihre Takte leicht auseinander. Mixpilot gleicht das aus, das Mithören bleibt sauber.',
+      },
+      {
+        art: 'reset',
+        title: 'Einstellungen in Sicherheit',
+        text: 'Ist die Einstellungsdatei beschädigt, etwa nach einem Stromausfall, sichert Mixpilot sie, lädt eine funktionierende Fassung und sagt dir Bescheid.',
+      },
+    ],
+  },
+  {
     version: '0.0.3',
     title: 'Musik-Kanal und EQ pro Kanal',
     items: [
@@ -1211,7 +1234,52 @@ function mixerArt(box) {
   return () => steps.forEach((s) => s());
 }
 
-const NEWS_ART = { eq: eqArt, mute: muteArt, mixer: mixerArt };
+// the microphone meters with monitoring on, both moving without a gap
+function monitorArt(box) {
+  const card = mini(box, 0.66, 400);
+  const head = el('div', 'card-head');
+  const state = el('button', 'mono mic-state', t('aktiv'));
+  state.disabled = true;
+  head.append(el('span', 'label', t('MIKROFON')), state);
+  const meters = [t('Eingang'), t('Nach Bearbeitung')].map((label) => {
+    const meter = el('div', 'hmeter');
+    const row = el('div', 'meter-row');
+    row.append(el('span', 'meter-label', label), meter);
+    card.append(row);
+    return makeSegments(meter, 24);
+  });
+  const sw = el('button', 'switch');
+  sw.setAttribute('aria-checked', 'true');
+  sw.append(el('span'));
+  const mon = el('div', 'card-head line');
+  mon.append(el('span', 'title small', t('Mithören')), sw);
+  card.prepend(head);
+  card.append(mon);
+  let level = 0.6;
+  return () => {
+    level = Math.max(0.35, Math.min(0.85, level + (Math.random() - 0.45) * 0.2));
+    meters[0](level);
+    meters[1](Math.max(0, level - 0.08));
+  };
+}
+
+// the note the window shows after the core replaced a damaged settings file
+function resetArt(box) {
+  const dialog = mini(box, 0.48, 580, 'dialog');
+  // a real dialog is capped to the window height, the miniature is not
+  Object.assign(dialog.style, { maxHeight: 'none', overflow: 'visible' });
+  const actions = el('div', 'actions');
+  actions.append(el('button', 'btn primary', t('Alles klar')));
+  dialog.append(
+    el('h1', null, t('Einstellungen ersetzt')),
+    el('p', null, t('Die Einstellungsdatei konnte nicht gelesen werden. Mixpilot hat sie gesichert und eine funktionierende Fassung geladen. Prüf kurz, ob alles passt.')),
+    el('p', 'mono path', '/home/simon/.config/mixpilot/config.json.broken-20261016-121503'),
+    actions,
+  );
+  return () => {};
+}
+
+const NEWS_ART = { eq: eqArt, mute: muteArt, mixer: mixerArt, monitor: monitorArt, reset: resetArt };
 let newsTimer = null;
 
 function openNews(entry) {
@@ -1227,12 +1295,16 @@ function openNews(entry) {
     const art = el('div', 'news-art');
     if (NEWS_ART[it.art]) steps.push(NEWS_ART[it.art](art));
     const text = el('div', 'news-text');
-    const go = el('button', 'btn small', t('Ansehen'));
-    go.addEventListener('click', () => {
-      closeNews();
-      document.querySelector(`.tab[data-tab="${it.tab}"]`)?.click();
-    });
-    text.append(el('h2', null, t(it.title)), el('p', 'hint', t(it.text)), go);
+    text.append(el('h2', null, t(it.title)), el('p', 'hint', t(it.text)));
+    // an item without a tab has nothing to show in the window
+    if (it.tab) {
+      const go = el('button', 'btn small', t('Ansehen'));
+      go.addEventListener('click', () => {
+        closeNews();
+        document.querySelector(`.tab[data-tab="${it.tab}"]`)?.click();
+      });
+      text.append(go);
+    }
     row.append(art, text);
     list.append(row);
   }
