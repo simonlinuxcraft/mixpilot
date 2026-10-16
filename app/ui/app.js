@@ -166,7 +166,12 @@ function save() {
   clearTimeout(saveTimer);
   const run = () => {
     lastSave = Date.now();
-    invoke('set_config', { cfg }).then(() => ($('error').hidden = true), showError);
+    const ack = cfg.config_reset === null;
+    invoke('set_config', { cfg }).then(() => {
+      // the null went out once; sending it again would delete a later note before it is shown
+      if (ack && cfg.config_reset === null) delete cfg.config_reset;
+      $('error').hidden = true;
+    }, showError);
   };
   if (Date.now() - lastSave > 60) run();
   else saveTimer = setTimeout(run, 60);
@@ -1289,10 +1294,12 @@ function bindChrome() {
   const reset = $('reset-info');
   const closeReset = async () => {
     reset.hidden = true;
+    // ask first: a pollConfig during the wait still sees the same note and does not reopen it
+    const version = cfg.seen_version ?? (await invoke('app_info').catch(() => null))?.version;
     // null tells set_config the note was shown; the file had been in use, so setup is not needed
     cfg.config_reset = null;
     cfg.setup_done = true;
-    cfg.seen_version ??= (await invoke('app_info').catch(() => null))?.version;
+    cfg.seen_version = version;
     save();
   };
   $('reset-ok').addEventListener('click', closeReset);
