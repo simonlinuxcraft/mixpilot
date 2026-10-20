@@ -189,6 +189,11 @@ fn watch_core() {
     });
 }
 
+/// Even `async` commands run on a Tokio worker; anything that waits on a process goes to the blocking pool.
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn core_status() -> bool {
     core_running()
@@ -307,8 +312,12 @@ fn mic_test_file() -> PathBuf {
 static MIC_TEST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Five seconds of the processed voice, the same signal Discord and OBS get.
-#[tauri::command(async)]
-fn mic_test_record() -> Result<(), String> {
+#[tauri::command]
+async fn mic_test_record() -> Result<(), String> {
+    blocking(record_mic_test).await?
+}
+
+fn record_mic_test() -> Result<(), String> {
     // without the core there is no Mixpilot microphone, WirePlumber would hand pw-record the raw one
     if !core_running() {
         return Err("Audio-Kern gestoppt".into());
@@ -345,8 +354,12 @@ fn record_five_seconds(file: &std::path::Path) -> Result<(), String> {
     if std::fs::metadata(file).is_ok_and(|m| m.len() > 44) { Ok(()) } else { Err("Aufnahme fehlgeschlagen".into()) }
 }
 
-#[tauri::command(async)]
-fn mic_test_play() -> Result<(), String> {
+#[tauri::command]
+async fn mic_test_play() -> Result<(), String> {
+    blocking(play_mic_test).await?
+}
+
+fn play_mic_test() -> Result<(), String> {
     let file = mic_test_file();
     // on the device Mixpilot plays to, which may differ from the system default
     let mut play = Command::new("pw-play");
@@ -597,10 +610,10 @@ struct BugInfo {
     log: String,
 }
 
-// async: system_info asks pactl, which must never block the main thread (window and tray)
-#[tauri::command(async)]
-fn bug_info() -> BugInfo {
-    BugInfo { can_send: BUG_PROXY.is_some() || BUG_KEY.is_some(), email: BUG_EMAIL.into(), info: system_info(), log: core_log_tail(60) }
+// system_info asks pactl, which must never block the main thread (window and tray)
+#[tauri::command]
+async fn bug_info() -> Result<BugInfo, String> {
+    blocking(|| BugInfo { can_send: BUG_PROXY.is_some() || BUG_KEY.is_some(), email: BUG_EMAIL.into(), info: system_info(), log: core_log_tail(60) }).await
 }
 
 #[derive(serde::Deserialize)]
@@ -630,6 +643,10 @@ fn report_text(r: &BugReport) -> String {
 /// Sends through the proxy or Web3Forms with curl (present on every desktop, staged in the snap).
 #[tauri::command]
 async fn send_bug_report(report: BugReport) -> Result<(), String> {
+    blocking(move || post_bug_report(&report)).await?
+}
+
+fn post_bug_report(report: &BugReport) -> Result<(), String> {
     if report.description.trim().len() < 5 {
         return Err("Bitte beschreib kurz, was passiert ist.".into());
     }
@@ -640,7 +657,7 @@ async fn send_bug_report(report: BugReport) -> Result<(), String> {
     let mut payload = serde_json::json!({
         "subject": format!("Mixpilot Bug Report v{}", env!("CARGO_PKG_VERSION")),
         "from_name": "Mixpilot App",
-        "message": report_text(&report),
+        "message": report_text(report),
         "botcheck": "",
     });
     if let (None, Some(key)) = (BUG_PROXY, BUG_KEY) {
@@ -843,14 +860,14 @@ fn hotkey_status() -> hotkey::Status {
     hotkey::status()
 }
 
-#[tauri::command(async)]
-fn set_hotkey(on: bool) -> Result<hotkey::Status, String> {
-    hotkey::send(if on { hotkey::Cmd::On } else { hotkey::Cmd::Off })
+#[tauri::command]
+async fn set_hotkey(on: bool) -> Result<hotkey::Status, String> {
+    blocking(move || hotkey::send(if on { hotkey::Cmd::On } else { hotkey::Cmd::Off })).await?
 }
 
-#[tauri::command(async)]
-fn change_hotkey() -> Result<hotkey::Status, String> {
-    hotkey::send(hotkey::Cmd::Change)
+#[tauri::command]
+async fn change_hotkey() -> Result<hotkey::Status, String> {
+    blocking(|| hotkey::send(hotkey::Cmd::Change)).await?
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
