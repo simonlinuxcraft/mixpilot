@@ -231,7 +231,9 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .checks .bad .mark { background: var(--red); color: #1a0705; }
 .checks code { display: block; margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: var(--well); font-family: var(--mono); font-size: 12px; user-select: all; }
 .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-.rule.inactive { opacity: 0.45; }
+/* resting, not disabled: dimmer text that still reads at 5:1, the controls keep working and look it */
+.rule.inactive .title { color: var(--muted); }
+.rule.inactive .hint { color: #85888e; }
 
 /* dialog windows (bug report) */
 .dialog-page .app { height: 100vh; }
