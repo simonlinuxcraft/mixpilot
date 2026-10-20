@@ -542,7 +542,8 @@ function openEqMenu(id, chip) {
       e.preventDefault();
       items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus();
     } else if (e.key === 'Escape' || e.key === 'Tab') {
-      closeEqMenu(e.key === 'Escape');
+      // Tab then moves on from the chip, not from the removed menu
+      closeEqMenu(true);
     }
   });
   document.body.append(box);
