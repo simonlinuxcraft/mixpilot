@@ -42,13 +42,13 @@
 
     <section id="done" class="status" hidden>
       <svg width="48" height="48" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M8 12l3 3 5-6"></path></svg>
-      <h2>Danke, der Bericht ist angekommen.</h2>
+      <h2 tabindex="-1">Danke, der Bericht ist angekommen.</h2>
       <p class="hint">Wenn du eine E-Mail angegeben hast, kann es eine Rückfrage geben.</p>
       <button class="btn primary" id="close-done">Schließen</button>
     </section>
 
     <section id="fail" class="status" hidden>
-      <h2 id="fail-title">Senden hat nicht geklappt</h2>
+      <h2 id="fail-title" tabindex="-1">Senden hat nicht geklappt</h2>
       <p class="hint" id="fail-text"></p>
       <p class="mail-addr" id="mail-addr"></p>
       <div class="actions">

@@ -17,6 +17,8 @@ function show(view) {
   $('done').hidden = view !== 'done';
   $('fail').hidden = view !== 'fail';
   $('footer').hidden = view !== 'form';
+  // the clicked button is gone now, the heading takes the focus so the result is read out
+  $(view).querySelector('h2')?.focus();
 }
 
 function paintPreview() {
@@ -45,7 +47,7 @@ $('desc').addEventListener('input', sync);
 $('win-close').addEventListener('click', () => win?.close());
 $('cancel').addEventListener('click', () => win?.close());
 $('close-done').addEventListener('click', () => win?.close());
-$('back').addEventListener('click', () => show('form'));
+$('back').addEventListener('click', () => { show('form'); $('desc').focus(); });
 $('mail').addEventListener('click', () => invoke('mail_bug_report', { report: report() }));
 
 $('send').addEventListener('click', async () => {
