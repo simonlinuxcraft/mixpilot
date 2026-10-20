@@ -324,7 +324,7 @@ function strip(id, label, master) {
   const head = el('div', 'strip-head');
   head.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[id]}"></path></svg>`;
   const dot = el('span', 'dot');
-  head.append(el('span', 'strip-name', label), dot);
+  head.append(el('h2', 'strip-name', label), dot);
   const body = el('div', 'strip-body');
   const meter = el('div', 'meter');
   const cl = el('div', 'col');
