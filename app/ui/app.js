@@ -120,6 +120,19 @@ function showError(e) {
   $('error').hidden = false;
 }
 
+// A dialog takes the focus and makes the window behind it inert; closing gives the focus back.
+function openDialog(o) {
+  if (o.hidden) o.from = document.activeElement;
+  o.hidden = false;
+  document.querySelector('.app').inert = true;
+  o.firstElementChild.focus();
+}
+function closeDialog(o) {
+  o.hidden = true;
+  document.querySelector('.app').inert = !!document.querySelector('.overlay:not([hidden])');
+  o.from?.focus();
+}
+
 // Faders follow the core's cubic taper: gain = (v/100)^3
 const fdb = (v) => (v <= 0 ? '-∞ dB' : `${(60 * Math.log10(v / 100)).toFixed(1)} dB`);
 
@@ -1305,7 +1318,9 @@ function openNews(entry) {
       const go = el('button', 'btn small', t('Ansehen'));
       go.addEventListener('click', () => {
         closeNews();
-        document.querySelector(`.tab[data-tab="${it.tab}"]`)?.click();
+        const b = document.querySelector(`.tab[data-tab="${it.tab}"]`);
+        b?.click();
+        b?.focus();
       });
       text.append(go);
     }
@@ -1316,14 +1331,13 @@ function openNews(entry) {
   step();
   clearInterval(newsTimer);
   if (!matchMedia('(prefers-reduced-motion: reduce)').matches) newsTimer = setInterval(step, 70);
-  $('news').hidden = false;
+  openDialog($('news'));
   fitMinis();
-  $('news').firstElementChild.focus();
 }
 
 function closeNews() {
   clearInterval(newsTimer);
-  $('news').hidden = true;
+  closeDialog($('news'));
 }
 
 // The about dialog shows the notes of this version, or the newest ones in a development build.
@@ -1359,17 +1373,17 @@ function bindChrome() {
   $('win-max').addEventListener('click', () => win?.toggleMaximize());
   $('win-close').addEventListener('click', () => win?.close());
   const info = $('support-info');
-  $('support').addEventListener('click', () => { info.hidden = false; info.firstElementChild.focus(); });
-  $('support-cancel').addEventListener('click', () => { info.hidden = true; });
-  info.addEventListener('click', (e) => { if (e.target === info) info.hidden = true; });
-  info.addEventListener('keydown', (e) => { if (e.key === 'Escape') info.hidden = true; });
+  $('support').addEventListener('click', () => openDialog(info));
+  $('support-cancel').addEventListener('click', () => closeDialog(info));
+  info.addEventListener('click', (e) => { if (e.target === info) closeDialog(info); });
+  info.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDialog(info); });
   $('support-go').addEventListener('click', () => {
-    info.hidden = true;
+    closeDialog(info);
     invoke('open_support').catch(showError);
   });
   const reset = $('reset-info');
   const closeReset = async () => {
-    reset.hidden = true;
+    closeDialog(reset);
     // ask first: a pollConfig during the wait still sees the same note and does not reopen it
     const version = cfg.seen_version ?? (await invoke('app_info').catch(() => null))?.version;
     // null tells set_config the note was shown; the file had been in use, so setup is not needed
@@ -1382,7 +1396,7 @@ function bindChrome() {
   reset.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeReset(); });
   $('bug').addEventListener('click', () => invoke('open_bug_report').catch(showError));
   const about = $('about');
-  const closeAbout = () => (about.hidden = true);
+  const closeAbout = () => closeDialog(about);
   $('about-btn').addEventListener('click', async () => {
     const a = await invoke('app_info').catch(() => null);
     if (a) {
@@ -1390,8 +1404,7 @@ function bindChrome() {
       $('about-contact').textContent = t('Kontakt: {0}', a.email);
     }
     $('licenses-box').open = false;
-    about.hidden = false;
-    about.firstElementChild.focus();
+    openDialog(about);
   });
   $('about-close').addEventListener('click', closeAbout);
   about.addEventListener('click', (e) => { if (e.target === about) closeAbout(); });
@@ -1464,7 +1477,7 @@ async function init() {
 // First start (or a snap without its permissions yet): the setup dialog works without a config;
 // "Fertig" waits for the core, which creates the settings.
 async function openSetup() {
-  $('setup').hidden = false;
+  openDialog($('setup'));
   await refreshDevices();
   await runChecks();
   $('recheck').addEventListener('click', async () => {
@@ -1484,7 +1497,7 @@ async function openSetup() {
     // a fresh install has nothing to catch up on
     cfg.seen_version = (await invoke('app_info').catch(() => null))?.version;
     save();
-    $('setup').hidden = true;
+    closeDialog($('setup'));
     await init();
     $('autostart').setAttribute('aria-checked', String(await invoke('get_autostart')));
   });
@@ -1509,8 +1522,7 @@ async function main() {
 function showReset(path) {
   cfg.config_reset = path;
   $('reset-file').textContent = path;
-  $('reset-info').hidden = false;
-  $('reset-info').firstElementChild.focus();
+  openDialog($('reset-info'));
 }
 
 main().catch(showError);
