@@ -224,6 +224,8 @@ function numField(input, { get, set, min, max, step = 1, show, toValue = (n) => 
   input.spellcheck = false;
   input.setAttribute('aria-label', label);
   const commit = () => {
+    // blur after Enter, Esc or Tab: an untouched field must not round the value or save
+    if (input.value === show()) return;
     const n = parseFloat(input.value.replace(',', '.').replace(/[^0-9.+-]/g, ''));
     if (Number.isFinite(n)) {
       const v = Math.min(max, Math.max(min, toValue(n)));
