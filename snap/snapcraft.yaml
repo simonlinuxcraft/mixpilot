@@ -74,11 +74,12 @@ parts:
 
   # rustup from its installer, not the snap: with the gnome extension's LD_LIBRARY_PATH the
   # rustup snap mixes two glibcs and aborts. The rust plugin finds it in $HOME/.cargo/bin.
+  # The toolchain is pinned to the one the last release was built with, so a build never changes compilers by itself.
   rust-deps:
     plugin: nil
     build-packages: [curl]
     override-build: |
-      curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable --no-modify-path
+      curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.99.0 --no-modify-path
 
   core:
     plugin: rust
