@@ -1046,7 +1046,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     *good.borrow_mut() = Some(t);
                     let n = c.auto && c.night.active_at(local_time().0);
                     p.apply(&c, n);
-                    nightc.set(n);
+                    if n != nightc.get() {
+                        nightc.set(n);
+                        event(&ev, if n { "night_on" } else { "night_off" }, &[]);
+                    }
                     // rules may have changed: move running apps where they belong now
                     let mut r = rt.borrow_mut();
                     for (id, app) in ap.borrow_mut().iter_mut() {
