@@ -440,6 +440,10 @@ function nameField() {
   Object.assign(input, { type: 'text', maxLength: 20, spellcheck: false, placeholder: t('Name') });
   input.dataset.k = 'name';
   input.setAttribute('aria-label', t('Name für das neue Preset'));
+  // stays in place while empty, so the alert is read out when the text arrives
+  const msg = el('span', 'name-error');
+  msg.id = 'name-error';
+  msg.setAttribute('role', 'alert');
   const done = () => { naming = false; paintAll(); };
   const commit = () => {
     const n = input.value.trim();
@@ -447,7 +451,8 @@ function nameField() {
     if (!n) return done();
     if (reservedName(n)) {
       input.setAttribute('aria-invalid', 'true');
-      input.title = t('So heißt schon ein eingebautes Preset');
+      input.setAttribute('aria-describedby', msg.id);
+      msg.textContent = t('So heißt schon ein eingebautes Preset');
       return;
     }
     cfg.eq_presets[n] = curveOf(selP).slice();
@@ -461,9 +466,13 @@ function nameField() {
     if (e.key === 'Enter') commit();
     else if (e.key === 'Escape') done();
   });
-  input.addEventListener('input', () => input.removeAttribute('aria-invalid'));
+  input.addEventListener('input', () => {
+    input.removeAttribute('aria-invalid');
+    input.removeAttribute('aria-describedby');
+    msg.textContent = '';
+  });
   input.addEventListener('blur', () => { if (input.getAttribute('aria-invalid')) done(); else commit(); });
-  return input;
+  return [input, msg];
 }
 
 function presetChips(box) {
@@ -498,8 +507,8 @@ function presetChips(box) {
       }), t('Preset {0} löschen', selP));
     }
     if (naming) {
-      const input = nameField();
-      box.append(input);
+      const [input, msg] = nameField();
+      box.append(input, msg);
       input.focus();
     } else {
       const full = own.length >= EQ_OWN_MAX;
