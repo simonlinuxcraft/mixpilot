@@ -1,0 +1,21 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libclang-dev libpipewire-0.3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev libxdo-dev libssl-dev dbus
+      - run: rustup update --no-self-update stable && rustup default stable && rustup component add clippy
+      - name: Core
+        working-directory: core
+        run: cargo clippy --locked --all-targets -- -D warnings && cargo test --locked
+      - name: App
+        working-directory: app
+        run: cargo clippy --locked --all-targets -- -D warnings && cargo test --locked
+      - name: UI and worker
+        run: for f in app/ui/*.js; do node --check "$f"; done && node --experimental-detect-module worker/test.mjs
