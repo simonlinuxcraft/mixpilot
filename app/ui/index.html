@@ -14,7 +14,7 @@
       <span class="name" data-tauri-drag-region>MIXPILOT</span>
       <span class="sub" data-tauri-drag-region>Ton für alles, ohne Studio-Diplom</span>
     </div>
-    <span id="core-status" class="core-status"></span>
+    <span id="core-status" class="core-status" aria-live="polite"></span>
     <div class="pill" title="Autopilot: Apps automatisch einsortieren, Ducking und Nachtmodus. Aus = alles bleibt, wie du es einstellst.">
       <span id="led" class="led"></span>
       <span>Autopilot</span>
@@ -48,7 +48,7 @@
   </nav>
 
   <main>
-    <p id="error" class="error" hidden></p>
+    <p id="error" class="error" role="alert" hidden></p>
 
     <section id="tab-mixer" class="page">
       <div class="strips" id="strips"></div>

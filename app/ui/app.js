@@ -114,7 +114,9 @@ const painters = [];
 const paintAll = () => painters.forEach((p) => p());
 
 function showError(e) {
-  $('error').textContent = t(String(e));
+  const s = t(String(e));
+  // rewriting the same text would make screen readers repeat the alert
+  if ($('error').hidden || $('error').textContent !== s) $('error').textContent = s;
   $('error').hidden = false;
 }
 
@@ -921,7 +923,9 @@ async function tick() {
 
 async function pollCore() {
   const on = await invoke('core_status').catch(() => false);
-  $('core-status').textContent = on ? t('Audio-Kern läuft') : t('Audio-Kern gestoppt');
+  const s = on ? t('Audio-Kern läuft') : t('Audio-Kern gestoppt');
+  // live region: only a real change is announced
+  if ($('core-status').textContent !== s) $('core-status').textContent = s;
   $('core-status').className = on ? 'core-status' : 'core-status off';
   $('start-core').hidden = on;
 }
