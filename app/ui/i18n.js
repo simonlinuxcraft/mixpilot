@@ -51,6 +51,7 @@ const EN = {
   'Ein Regler statt zwei: schiebt die Balance zwischen Spiel und Sprach-Chat.': 'One slider instead of two: shifts the balance between game and voice chat.',
   'AUTOPILOT HAT GERADE': 'AUTOPILOT ACTIVITY',
   'STUMM': 'MUTE',
+  '{0} stumm': 'Mute {0}',
   'Systemlautstärke deines Ausgabegeräts': 'System volume of your output device',
   '{0} Lautstärke': '{0} volume',
   'Klang {0}: {1}, wählen': 'Sound {0}: {1}, choose',

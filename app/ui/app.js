@@ -349,12 +349,12 @@ function strip(id, label, master) {
   } else {
     fader.addEventListener('input', change(() => (cfg[id].volume = Number(fader.value))));
   }
-  let mute = null;
+  const mute = el('button', 'mute', t('STUMM'));
+  mute.setAttribute('aria-label', t('{0} stumm', label));
   let chip = null;
   const apps = el('div', 'appchips');
   if (master) {
     const btns = el('div', 'btns');
-    mute = el('button', 'mute', t('STUMM'));
     mute.addEventListener('click', async () => {
       masterDev.mute = !masterDev.mute;
       masterTouched = Date.now();
@@ -365,7 +365,6 @@ function strip(id, label, master) {
     root.append(btns, el('p', 'hint', t('Systemlautstärke deines Ausgabegeräts')));
   } else {
     const btns = el('div', 'btns');
-    mute = el('button', 'mute', t('STUMM'));
     mute.addEventListener('click', change(() => (cfg[id].mute = !cfg[id].mute)));
     chip = el('button', 'eqchip');
     chip.setAttribute('aria-haspopup', 'menu');
@@ -382,7 +381,7 @@ function strip(id, label, master) {
     if (document.activeElement !== fader) fader.value = get();
     const muted = master ? masterDev.mute : cfg[id].mute;
 
-    if (mute) mute.setAttribute('aria-pressed', String(muted));
+    mute.setAttribute('aria-pressed', String(muted));
     if (chip) {
       const name = presetLabel(chPreset(id));
       chip.replaceChildren(el('b', null, 'EQ'), el('span', null, name));
