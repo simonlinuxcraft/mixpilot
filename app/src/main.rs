@@ -62,13 +62,20 @@ fn fresh_proto() -> Option<u64> {
     Some(v.get("proto").and_then(Value::as_u64).unwrap_or(0))
 }
 
+/// A core still starting or a busy machine can leave the state a few seconds old, that is no reason
+/// to cut the audio; the lock is rewritten when a core starts.
+fn core_hung() -> bool {
+    let quiet = |name: &str| age(&runtime_dir().join(name)).is_none_or(|a| a > std::time::Duration::from_secs(10));
+    core_running() && quiet("mixpilot.lock") && quiet("mixpilot/state.json")
+}
+
 /// A core that speaks another protocol is an older version (after an update), one that has written
 /// nothing for 10 s is hung. Either is stopped by PID so a current one can take over.
 fn replace_stale_core() {
     // Once per app run at most: if the only core binary around speaks another protocol, replacing it
     // again on every window open would cut the audio each time.
     static REPLACED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    if !core_running() || REPLACED.load(std::sync::atomic::Ordering::Relaxed) {
+    if !core_running() {
         return;
     }
     let mut other = false;
@@ -82,13 +89,10 @@ fn replace_stale_core() {
             None => std::thread::sleep(std::time::Duration::from_millis(50)),
         }
     }
-    // a core still starting or a busy machine can leave the state a few seconds old, that is no reason
-    // to cut the audio; the lock is rewritten when a core starts
-    let quiet = |name: &str| age(&runtime_dir().join(name)).is_none_or(|a| a > std::time::Duration::from_secs(10));
-    if !other && !(quiet("mixpilot.lock") && quiet("mixpilot/state.json")) {
+    let keep = if other { REPLACED.swap(true, std::sync::atomic::Ordering::Relaxed) } else { !core_hung() };
+    if keep {
         return;
     }
-    REPLACED.store(true, std::sync::atomic::Ordering::Relaxed);
     eprintln!("mixpilot: replacing an older or hung core");
     stop_core();
 }
@@ -165,20 +169,22 @@ fn start_core() -> Result<(), String> {
 }
 
 /// The core ends itself when PipeWire goes away (a restart, an update, a crash) or a channel fails,
-/// and nothing else would bring it back. Waits longer each time it dies young, so a system without
-/// PipeWire or a snap without its permissions is not hammered.
+/// and nothing else would bring it back; a hung one is replaced, also with the window closed. Waits
+/// longer each time it dies young, so a system without PipeWire or a snap without its permissions is
+/// not hammered.
 fn watch_core() {
     std::thread::spawn(|| {
         let mut delay = Duration::from_secs(2);
         let mut last = Instant::now();
         loop {
             std::thread::sleep(Duration::from_secs(2));
-            if core_running() {
+            let hung = core_hung();
+            if core_running() && !hung {
                 if last.elapsed() > Duration::from_secs(60) {
                     delay = Duration::from_secs(2);
                 }
             } else if last.elapsed() >= delay {
-                eprintln!("mixpilot: audio core not running, starting it again");
+                eprintln!("mixpilot: audio core {}, starting it again", if hung { "hung" } else { "not running" });
                 if let Err(e) = start_core() {
                     eprintln!("mixpilot: {e}");
                 }
