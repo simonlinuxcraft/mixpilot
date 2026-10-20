@@ -881,6 +881,16 @@ mod tests {
     }
 
     #[test]
+    fn ui_shows_the_same_built_in_curves() {
+        let js = include_str!("../../app/ui/app.js");
+        for (name, bands) in crate::config::EQ_BUILTIN {
+            let line = js.lines().find(|l| l.trim_start().starts_with(&format!("{name}: ["))).unwrap_or_else(|| panic!("{name} missing in EQ_BUILTIN of app.js"));
+            let ui: Vec<f32> = line[line.find('[').unwrap() + 1..line.find(']').unwrap()].split(',').map(|v| v.trim().parse().unwrap()).collect();
+            assert_eq!(ui, bands, "{name} differs between app.js and config.rs");
+        }
+    }
+
+    #[test]
     fn retune_keeps_state() {
         let mut bq = Biquad::low_shelf(100.0, 6.0);
         for i in 0..100 {
