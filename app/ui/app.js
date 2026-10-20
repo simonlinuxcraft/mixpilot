@@ -29,7 +29,7 @@ const EQ_LABEL = { flat: 'Flat', bass: 'Bass', voice: t('Stimme'), gaming: 'Gami
 // more own presets would wrap the chips and push the sound tab into scrolling
 const EQ_OWN_MAX = 4;
 const isBuiltIn = (k) => Object.hasOwn(EQ_BUILTIN, k);
-const presetLabel = (k) => EQ_LABEL[k] || k;
+const presetLabel = (k) => (isBuiltIn(k) ? EQ_LABEL[k] : k);
 const presetKeys = () => [...Object.keys(EQ_BUILTIN), ...Object.keys(cfg.eq_presets)];
 const curveOf = (k) => (isBuiltIn(k) ? cfg.eq_edits[k] || EQ_BUILTIN[k] : cfg.eq_presets[k] || EQ_BUILTIN.flat);
 // a channel whose own preset is gone plays flat, the core does the same
@@ -135,7 +135,8 @@ function defaults(c) {
   c.limiter ??= true;
   c.clarity ??= false;
   c.auto_volume ??= 'off';
-  c.eq_presets = curves(c.eq_presets);
+  // no prototype: a preset named "__proto__" or "toString" is a plain key, never an inherited one
+  c.eq_presets = Object.assign(Object.create(null), curves(c.eq_presets));
   c.eq_edits = Object.fromEntries(Object.entries(curves(c.eq_edits)).filter(([k]) => isBuiltIn(k)));
   // up to 0.0.2 one equalizer worked on everything; a tuned curve stays as an own preset
   if (Array.isArray(c.eq)) {
