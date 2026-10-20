@@ -10,6 +10,8 @@ const report = () => ({
   email: $('email').value,
   include_info: flag('info'),
   include_log: flag('log'),
+  info: info.info,
+  log: info.log,
 });
 
 function show(view) {

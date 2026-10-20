@@ -623,6 +623,9 @@ struct BugReport {
     email: String,
     include_info: bool,
     include_log: bool,
+    // the texts the preview showed, not a fresh read at send time
+    info: String,
+    log: String,
 }
 
 fn report_text(r: &BugReport) -> String {
@@ -631,10 +634,10 @@ fn report_text(r: &BugReport) -> String {
         t += &format!("\n\n--- Error messages ---\n{}", r.errors.trim());
     }
     if r.include_info {
-        t += &format!("\n\n--- System ---\n{}", system_info());
+        t += &format!("\n\n--- System ---\n{}", r.info.trim());
     }
     if r.include_log {
-        t += &format!("\n\n--- Core log (last 60 lines) ---\n{}", core_log_tail(60));
+        t += &format!("\n\n--- Core log (last 60 lines) ---\n{}", r.log);
     }
     t += &format!("\n\nUser-Email: {}", if r.email.trim().is_empty() { "(not provided)" } else { r.email.trim() });
     t
@@ -1055,6 +1058,21 @@ mod tests {
         drop(first);
         assert!(app_lock(&path).unwrap().is_some());
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn report_sends_what_the_preview_showed() {
+        let r = BugReport {
+            description: "it broke".into(),
+            errors: String::new(),
+            email: String::new(),
+            include_info: true,
+            include_log: false,
+            info: "OS: as shown".into(),
+            log: "core: as shown".into(),
+        };
+        let t = report_text(&r);
+        assert!(t.contains("OS: as shown") && !t.contains("core: as shown"));
     }
 
     #[test]
