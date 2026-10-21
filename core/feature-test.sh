@@ -180,7 +180,7 @@ cfg '{"mic":{"gate":false,"noise":"off","monitor":true}}'
 feed tone.wav
 # 4096 needs a raised max-quantum, some setups run that way to save power
 pw-metadata -n settings 0 clock.max-quantum 8192 >/dev/null
-for q in 256 1024 4096; do
+for q in 256 1024 4096 8192; do
   pw-metadata -n settings 0 clock.force-quantum $q >/dev/null
   sleep 1
   : >"$W/g.wav"
@@ -190,10 +190,20 @@ for q in 256 1024 4096; do
   timeout 4 pw-record -P '{ stream.capture.sink=true }' --target mp_test_out --rate 48000 --channels 1 --format s16 "$W/m.wav" >/dev/null 2>&1
   check "no dropouts when monitoring at quantum $q" "$(n=$(gaps "$W/m.wav"); [ "$n" = 0 ] && echo ok || echo "$n dropouts")"
 done
-pw-metadata -n settings 0 clock.force-quantum 0 >/dev/null
-pw-metadata -n settings 0 clock.max-quantum 0 >/dev/null
 cfg '{"mic":{"monitor":false}}'
 kill $FEED; FEED=
+pw-cat -p --target mp_test_out -P '{ node.name=mp_test_media application.name=mp_test_media }' "$W/tone.wav" >/dev/null 2>&1 &
+MEDIA=$!
+for q in 256 1024 4096 8192; do
+  pw-metadata -n settings 0 clock.force-quantum $q >/dev/null
+  sleep 1
+  : >"$W/c.wav"
+  timeout 4 pw-record -P '{ stream.capture.sink=true }' --target mp_test_out --rate 48000 --channels 1 --format s16 "$W/c.wav" >/dev/null 2>&1
+  check "no dropouts in a channel at quantum $q" "$(n=$(gaps "$W/c.wav"); [ "$n" = 0 ] && echo ok || echo "$n dropouts")"
+done
+kill $MEDIA; MEDIA=
+pw-metadata -n settings 0 clock.force-quantum 0 >/dev/null
+pw-metadata -n settings 0 clock.max-quantum 0 >/dev/null
 sleep 3
 check "microphone closes again after the listener left" "$(grep -Fq 'mic_paused' "$W/daemon.log" && echo ok || echo 'still open')"
 

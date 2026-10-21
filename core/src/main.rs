@@ -16,7 +16,7 @@ use std::io::{Cursor, Write};
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering::Relaxed};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime};
 
@@ -33,10 +33,11 @@ use spa::pod::{serialize::PodSerializer, Object, Pod, Value};
 use config::{index_of, Config, CHANNELS};
 use dsp::{run5, sanitize, Agc, Biquad, Chain5, DeEsser, Envelope, Eq10, Gate, Leveler, Limiter, Smooth};
 
-/// ~100 ms of stereo audio. Anything older is dropped so latency cannot creep up.
-const RING_MAX: usize = 48_000 / 10 * 2;
-/// ~250 ms of mono microphone audio, enough to start reading at a quantum of 8192.
-const MIC_RING_MAX: usize = 48_000 / 4;
+/// Two cycles of stereo audio at quantum 8192, the largest PipeWire allows by default. The output
+/// keeps at most three of its own cycles, so latency cannot creep up.
+const RING_MAX: usize = 8192 * 2 * 2;
+/// 1 s of mono microphone audio: two 8192 blocks on top of the reader's slack, see Elastic.
+const MIC_RING_MAX: usize = 48_000;
 const BASS_FREQ: f32 = 100.0;
 const FRAME: usize = DenoiseState::FRAME_SIZE;
 /// main loop tick; config polling, level snapshots and reconnects all run on it
@@ -66,6 +67,8 @@ struct Params {
     mic_voice: AtomicU32,
     mic_deess: AtomicU32,
     monitor: AtomicBool,
+    /// samples per capture cycle, written by the microphone callback for the readers of its rings
+    mic_block: AtomicUsize,
 }
 
 fn put(a: &AtomicU32, v: f32) {
@@ -330,11 +333,11 @@ impl MicDsp {
     }
 }
 
-/// Plays a ring the microphone fills in 480-sample RNNoise blocks on its own clock. That clock is
-/// often another device's and runs a little faster or slower than the reader's, and either side may
-/// come first in a cycle. The reading speed follows the lowest fill level seen before a read (cubic
-/// interpolation, at most 0.5 % off), so the ring neither runs dry nor grows. A dropout buys 10 ms
-/// more headroom, given back after ten clean minutes.
+/// Plays a ring the microphone fills in 480-sample RNNoise blocks, a whole quantum per cycle, on its
+/// own clock. That clock is often another device's and runs a little faster or slower than the
+/// reader's, and either side may come first in a cycle. The reading speed follows the lowest fill
+/// level seen before a read (cubic interpolation, at most 0.5 % off), so the ring neither runs dry
+/// nor grows. A dropout buys 10 ms more headroom, given back after ten clean minutes.
 #[derive(Default)]
 struct Elastic {
     playing: bool,
@@ -351,9 +354,11 @@ struct Elastic {
 }
 
 impl Elastic {
-    /// Once per callback, before `next`. False means silence this time, nothing is taken.
-    fn start(&mut self, ring: &mut VecDeque<f32>, frames: usize) -> bool {
+    /// Once per callback, before `next`, with the writer's samples per cycle. False means silence
+    /// this time, nothing is taken.
+    fn start(&mut self, ring: &mut VecDeque<f32>, frames: usize, block: usize) -> bool {
         let goal = frames + FRAME / 2 + self.extra;
+        let block = block.div_ceil(FRAME).max(1) * FRAME;
         let mut len = ring.len();
         if !self.playing {
             if len < goal + FRAME {
@@ -372,9 +377,10 @@ impl Elastic {
             return false;
         }
         self.frames = frames;
-        if len > goal + 6 * FRAME {
+        // two writer blocks can land between reads when the clocks slip past each other
+        if len > goal + 2 * block + 4 * FRAME {
             // a stall left a backlog: jump instead of catching up for seconds
-            ring.drain(..len - goal - FRAME);
+            ring.drain(..len - goal - block);
             len = ring.len();
         }
         self.low = self.low.min(len);
@@ -706,7 +712,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let mut mon = lock(&mon_ring);
             let mon_play = if monitor {
-                mon_el.start(&mut mon, frames)
+                mon_el.start(&mut mon, frames, p.mic_block.load(Relaxed))
             } else {
                 mon.clear();
                 mon_el = Elastic::default();
@@ -806,7 +812,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // A stream node runs even without links (it always gets a driver), so its state says nothing
     // about listeners. Links whose output is this node are counted instead (registry below).
     let src_links: Rc<RefCell<HashSet<u32>>> = Rc::new(RefCell::new(HashSet::new()));
-    let src_out = mic_out.clone();
+    let (src_out, src_p) = (mic_out.clone(), params.clone());
     let mut src_el = Elastic::default();
     let src_listener = mic_src
         .add_local_listener_with_user_data(())
@@ -820,7 +826,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 frames = frames.min(req);
             }
             let mut ring = lock(&src_out);
-            let play = src_el.start(&mut ring, frames);
+            let play = src_el.start(&mut ring, frames, src_p.mic_block.load(Relaxed));
             for f in 0..frames {
                 let v = if play { src_el.next(&mut ring) } else { 0.0 };
                 bytes[f * 4..f * 4 + 4].copy_from_slice(&v.to_le_bytes());
@@ -874,6 +880,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(bytes) = d.data() else { return };
             let start = off.min(bytes.len());
             let end = start.saturating_add(size).min(bytes.len());
+            p.mic_block.store((end - start) / 4, Relaxed);
             let mut out = lock(&mo);
             let monitor = p.monitor.load(Relaxed);
             let mut mon = lock(&mm);
@@ -1335,23 +1342,37 @@ mod tests {
         (bad_reads, fill / reads as f64)
     }
 
+    fn elastic_run(qi: usize, qo: usize, ppm: f64, jitter: f64) -> (usize, f64) {
+        let mut el = super::Elastic::default();
+        let (bad, fill) = simulate(qi, qo, ppm, jitter, 300.0, |ring, out| {
+            if !el.start(ring, out.len(), qi) {
+                out.fill(0.0);
+                return false;
+            }
+            out.iter_mut().for_each(|o| *o = el.next(ring));
+            true
+        });
+        println!("in {qi} out {qo} {ppm:+} ppm jitter {:.0} ms: {bad} bad reads in 5 min, mean fill {fill:.0}", jitter * 1000.0);
+        (bad, fill)
+    }
+
     #[test]
     fn microphone_ring_survives_two_clocks() {
-        use super::Elastic;
         for (qi, qo, ppm, jitter) in [(1024, 1024, 0.0, 0.0), (1024, 1024, 200.0, 0.001), (1024, 1024, -200.0, 0.001), (256, 1024, 500.0, 0.001), (1024, 256, -500.0, 0.001), (480, 2048, 100.0, 0.002), (1024, 1024, 0.0, 0.003)] {
-            let mut el = Elastic::default();
-            let (bad, fill) = simulate(qi, qo, ppm, jitter, 300.0, |ring, out| {
-                if !el.start(ring, out.len()) {
-                    out.fill(0.0);
-                    return false;
-                }
-                out.iter_mut().for_each(|o| *o = el.next(ring));
-                true
-            });
-            println!("in {qi} out {qo} {ppm:+} ppm jitter {:.0} ms: {bad} bad reads in 5 min, mean fill {fill:.0}", jitter * 1000.0);
+            let (bad, fill) = elastic_run(qi, qo, ppm, jitter);
             // one dropout may teach it the headroom, after that it has to hold, at most ~40 ms behind
             assert!(bad <= 2, "{bad} bad reads with in {qi} out {qo} {ppm} ppm");
             assert!(fill < qo as f64 + 2000.0, "mean fill {fill:.0} with in {qi} out {qo} {ppm} ppm");
+        }
+    }
+
+    #[test]
+    fn microphone_ring_keeps_large_blocks() {
+        for (qi, qo, ppm, jitter) in [(4096, 1024, 200.0, 0.001), (8192, 1024, -200.0, 0.001), (4096, 4096, 200.0, 0.002), (8192, 8192, -200.0, 0.002), (1024, 8192, 100.0, 0.001)] {
+            let (bad, fill) = elastic_run(qi, qo, ppm, jitter);
+            assert!(bad <= 2, "{bad} bad reads with in {qi} out {qo} {ppm} ppm");
+            // a whole block of either side may sit in the ring, never more
+            assert!(fill < (qi + qo) as f64 + 2000.0, "mean fill {fill:.0} with in {qi} out {qo} {ppm} ppm");
         }
     }
 }
