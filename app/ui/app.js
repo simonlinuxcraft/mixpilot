@@ -1075,6 +1075,30 @@ async function runChecks() {
 // Shown once after an update. `version` stays null until the release that ships it sets it.
 const NEWS = [
   {
+    version: '0.0.6',
+    title: 'Leichter für alle',
+    items: [
+      {
+        art: 'mixer',
+        tab: 'mixer',
+        title: 'Mit Tastatur und Screenreader',
+        text: 'Die Tabs wechseln mit den Pfeiltasten, Dialoge behalten den Fokus, jeder Regler sagt seinen Wert an und Fehler werden vorgelesen. Strg+Plus macht alles größer.',
+      },
+      {
+        art: 'mute',
+        tab: 'mic',
+        title: 'Push-to-Mute hält',
+        text: 'Ist der Desktop beim Anmelden noch nicht bereit oder startet sein Dienst für Tastenkürzel neu, verbindet sich die Taste von selbst wieder. Andere Apps können sie nicht mehr auslösen.',
+      },
+      {
+        art: 'monitor',
+        tab: 'mic',
+        title: 'Ganzer Ton bei großem Puffer',
+        text: 'Läuft PipeWire mit großem Puffer, kommt der Ton ohne Lücken an, auch beim Mithören. Ein hängender Audio-Kern wird auch bei geschlossenem Fenster ersetzt.',
+      },
+    ],
+  },
+  {
     version: '0.0.5',
     title: 'Stabiler im Alltag',
     items: [

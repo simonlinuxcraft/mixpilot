@@ -22,7 +22,7 @@
   <img src=".github/screenshots/mixer.png" width="820" alt="Mixpilot mixer with Game, Chat, Media, Music and Aux channels">
 </p>
 
-Mixpilot sorts your apps into four channels with their own faders, cleans up your
+Mixpilot sorts your apps into five channels with their own faders, cleans up your
 microphone and keeps the volume in check, without you having to learn audio routing.
 Turn on the Autopilot and most of it happens by itself.
 
@@ -87,7 +87,7 @@ Needs PipeWire with WirePlumber, the default on most current distributions
 - Night mode by time of day
 - Starts with the system and stays in the tray (open, Autopilot, mute microphone, quit)
 
-The interface is available in English and German.
+The interface is available in English and German, works with the keyboard and screen readers, and zooms with Ctrl+Plus.
 
 ## Planned
 
@@ -121,14 +121,18 @@ Snap:
 
 ### Tests
 
-    cd core && cargo test
+    cargo test --manifest-path core/Cargo.toml
+    cargo test --manifest-path app/Cargo.toml
+    node worker/test.mjs
 
 The live tests run against a private PipeWire without hardware, never against your own audio:
 
+    cd core
     sh sandbox.sh sh live-test.sh
     sh sandbox.sh sh feature-test.sh
     sh sandbox.sh sh stress-test.sh 120
     sh wp-restart-test.sh
+    sh sandbox.sh sh uninstall-test.sh
 
 ## Bugs and support
 

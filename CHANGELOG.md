@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.0.6 - Easier for everyone
+
+- Keyboard and screen readers: the tabs switch with the arrow keys, dialogs take the focus and give it back, every mute button names its channel, sliders and the microphone levels read out their values in words, and errors and the audio core status are announced. Ctrl+Plus and Ctrl+Minus zoom both windows, the content scrolls only when zoomed in. Slider tracks, unlit meter segments and the rules dimmed while Autopilot is off have more contrast
+- Push-to-mute connects again by itself when the desktop's shortcut service is not ready yet at login or restarts later, and only the desktop itself can trigger the key
+- No more gaps in the channels and when hearing yourself while PipeWire runs with a quantum of 4096 or 8192
+- A hung audio core is replaced even while the window is closed
+- Bug reports arrive with their line breaks and contain exactly the system info and log the preview showed
+- Esc in a value field keeps the value, and tabbing through the fields no longer nudges the volumes
+- Switching night mode on or off in the window shows up in the Autopilot log
+- Less work in the background: with the window closed the audio core updates its state once a second instead of 20 times, and the master volume is read only after it changed
+- Without XDG_RUNTIME_DIR, Mixpilot no longer falls back to a shared folder in /tmp that another user on the same computer could take over
+
 ## 0.0.5 - Steadier every day
 
 - A damaged settings file no longer leaves Mixpilot stuck on the welcome screen with the tray and the mute key doing nothing. The core keeps the file as config.json.broken-<date> next to it, loads the last working settings or the defaults, and the window says so once. A device name with a NUL character in the settings no longer crashes the core
