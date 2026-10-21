@@ -321,3 +321,4 @@ main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 20px; displa
 .mic-state:not(:disabled) { color: var(--red); cursor: pointer; text-decoration: underline dotted; }
 .news-art { display: flex; align-items: center; justify-content: center; padding: 6px; border-radius: 8px; background: var(--win); overflow: hidden; }
 .mini-ui { flex: none; overflow: hidden; }
+.mini-ui .pressed { background: var(--line2); transform: translateY(1px); }

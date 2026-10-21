@@ -1139,6 +1139,41 @@ function fitMinis() {
   document.querySelectorAll('.mini-ui').forEach((s) => (s.style.height = `${s.firstElementChild.offsetHeight * s.dataset.scale}px`));
 }
 
+// the push-to-mute part of the microphone tab: each key press flips aktiv and stumm
+function muteArt(box) {
+  const card = mini(box, 0.66, 400);
+  const state = el('button', 'mono mic-state');
+  const head = el('div', 'card-head');
+  head.append(el('span', 'label', t('MIKROFON')), state);
+  const meter = el('div', 'hmeter');
+  const set = makeSegments(meter, 24);
+  const row = el('div', 'meter-row');
+  row.append(el('span', 'meter-label', t('Nach Bearbeitung')), meter);
+  const sw = el('button', 'switch');
+  sw.setAttribute('aria-checked', 'true');
+  sw.append(el('span'));
+  const ptm = el('div', 'card-head line');
+  ptm.append(el('span', 'title small', 'Push-to-Mute'), sw);
+  const key = el('button', 'btn small', t('Strg+Alt+M'));
+  const keyRow = el('div', 'card-head');
+  keyRow.append(el('span', 'title small', t('Taste')), key);
+  card.append(head, row, ptm, keyRow);
+  let tick = 0;
+  let muted = true;
+  let level = 0.6;
+  return () => {
+    const phase = tick++ % 40;
+    if (phase === 0) {
+      muted = !muted;
+      state.textContent = muted ? t('stumm') : t('aktiv');
+      state.disabled = !muted;
+    }
+    key.classList.toggle('pressed', phase < 3);
+    level = Math.max(0.35, Math.min(0.85, level + (Math.random() - 0.45) * 0.2));
+    set(muted ? 0 : level);
+  };
+}
+
 // the mixer strips as they are in the mixer tab, meters moving
 function mixerArt(box) {
   const strips = mini(box, 0.33, 800, 'strips');
@@ -1240,7 +1275,7 @@ function resetArt(box) {
   return () => {};
 }
 
-const NEWS_ART = { mixer: mixerArt, monitor: monitorArt, reset: resetArt };
+const NEWS_ART = { mute: muteArt, mixer: mixerArt, monitor: monitorArt, reset: resetArt };
 let newsTimer = null;
 
 function openNews(entry) {

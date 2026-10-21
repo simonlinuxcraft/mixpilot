@@ -22,6 +22,7 @@ const EN = {
   'Ist die Einstellungsdatei beschädigt, etwa nach einem Stromausfall, sichert Mixpilot sie, lädt eine funktionierende Fassung und sagt dir Bescheid.': 'If the settings file is damaged, for example after a power cut, Mixpilot keeps a copy, loads a working version and tells you.',
   'Ansehen': 'Show me',
   'Alles klar': 'Got it',
+  'Strg+Alt+M': 'Ctrl+Alt+M',
   'Push-to-Mute': 'Push-to-mute',
   'an': 'on',
   'Minimieren': 'Minimize',
