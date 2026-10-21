@@ -23,7 +23,7 @@ pub const CHANNELS: [ChannelDef; 5] = [
 ];
 
 /// Built-in EQ presets, 10 bands in dB at dsp::EQ_FREQS. app.js shows the same table as EQ_BUILTIN.
-pub const EQ_BUILTIN: [(&str, [f32; 10]); 6] = [
+pub const EQ_BUILTIN: [(&str, [f32; 10]); 8] = [
     ("flat", [0.0; 10]),
     ("bass", [6.0, 5.0, 3.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
     ("voice", [-3.0, -2.0, -1.0, 0.0, 2.0, 3.0, 3.0, 2.0, 0.0, -1.0]),
@@ -31,6 +31,10 @@ pub const EQ_BUILTIN: [(&str, [f32; 10]); 6] = [
     ("clear", [0.0, 0.0, -1.0, -1.0, 0.0, 1.0, 2.0, 3.0, 3.0, 2.0]),
     // full deep bass without boom at 250 Hz, a little less box around 1 kHz, air from 7 kHz
     ("music", [4.0, 4.0, 2.0, 0.0, -1.0, -1.0, 0.0, 1.0, 2.0, 2.0]),
+    // dialogue up 2 to 3 dB at 1.5 to 3.5 kHz, some weight for effects
+    ("film", [3.0, 2.0, 0.0, -1.0, -1.0, 1.0, 3.0, 2.0, 0.0, -1.0]),
+    // small speakers only distort deep bass; fullness from 250 to 600 Hz instead
+    ("laptop", [-6.0, -4.0, -1.0, 2.0, 2.0, 1.0, 0.0, 1.0, 1.0, 0.0]),
 ];
 
 #[derive(Serialize, Deserialize, Clone)]

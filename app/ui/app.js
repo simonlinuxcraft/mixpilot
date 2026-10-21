@@ -25,8 +25,10 @@ const EQ_BUILTIN = {
   gaming: [3, 4, 2, 0, -1, 0, 1, 3, 2, 1],
   clear: [0, 0, -1, -1, 0, 1, 2, 3, 3, 2],
   music: [4, 4, 2, 0, -1, -1, 0, 1, 2, 2],
+  film: [3, 2, 0, -1, -1, 1, 3, 2, 0, -1],
+  laptop: [-6, -4, -1, 2, 2, 1, 0, 1, 1, 0],
 };
-const EQ_LABEL = { flat: 'Flat', bass: 'Bass', voice: t('Stimme'), gaming: 'Gaming', clear: t('Klar'), music: t('Musik') };
+const EQ_LABEL = { flat: 'Flat', bass: 'Bass', voice: t('Stimme'), gaming: 'Gaming', clear: t('Klar'), music: t('Musik'), film: t('Film'), laptop: t('Laptop') };
 // more own presets would wrap the chips and push the sound tab into scrolling
 const EQ_OWN_MAX = 4;
 const isBuiltIn = (k) => Object.hasOwn(EQ_BUILTIN, k);
@@ -35,11 +37,11 @@ const presetKeys = () => [...Object.keys(EQ_BUILTIN), ...Object.keys(cfg.eq_pres
 const curveOf = (k) => (isBuiltIn(k) ? cfg.eq_edits[k] || EQ_BUILTIN[k] : cfg.eq_presets[k] || EQ_BUILTIN.flat);
 // a channel whose own preset is gone plays flat, the core does the same
 const chPreset = (id) => (isBuiltIn(cfg[id].eq) || cfg.eq_presets[cfg[id].eq] ? cfg[id].eq : 'flat');
-// the built-in a name stands for: its key, which is also the English label, or the German label
-const GERMAN_LABELS = { stimme: 'voice', klar: 'clear', musik: 'music' };
+// the built-in a name stands for: its key or a label in either language
+const LABELS = { stimme: 'voice', klar: 'clear', musik: 'music', movie: 'film' };
 const builtinFor = (n) => {
   const l = n.toLowerCase();
-  return isBuiltIn(l) ? l : Object.hasOwn(GERMAN_LABELS, l) ? GERMAN_LABELS[l] : null;
+  return isBuiltIn(l) ? l : Object.hasOwn(LABELS, l) ? LABELS[l] : null;
 };
 const reservedName = (n) => builtinFor(n) !== null;
 const curves = (o) => Object.fromEntries(Object.entries(o || {})

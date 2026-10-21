@@ -69,6 +69,8 @@ const EN = {
   'EQ-Presets': 'EQ presets',
   'Stimme': 'Voice',
   'Klar': 'Clear',
+  'Film': 'Movie',
+  'Laptop': 'Laptop',
   '+ Neu': '+ New',
   'Neues Preset als Kopie von {0}': 'New preset as a copy of {0}',
   'Name': 'Name',
