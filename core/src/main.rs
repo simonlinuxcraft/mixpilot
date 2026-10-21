@@ -329,11 +329,7 @@ impl MicDsp {
     }
 }
 
-/// Plays a ring the microphone fills in 480-sample RNNoise blocks, a whole quantum per cycle, on its
-/// own clock. That clock is often another device's and runs a little faster or slower than the
-/// reader's, and either side may come first in a cycle. The reading speed follows the lowest fill
-/// level seen before a read (cubic interpolation, at most 0.5 % off), so the ring neither runs dry
-/// nor grows. A dropout buys 10 ms more headroom, given back after ten clean minutes.
+/// The microphone fills its ring on another device's clock, so the reader follows the fill level at up to 0.5 % off speed.
 #[derive(Default)]
 struct Elastic {
     playing: bool,
@@ -541,7 +537,6 @@ fn fresh(path: &Path, secs: u64) -> bool {
         .is_ok_and(|t| SystemTime::now().duration_since(t).is_ok_and(|d| d.as_secs() < secs))
 }
 
-/// Atomic replace so the app never reads half a file.
 fn levels_json(l: &[f32; 2 * N + 4], mic_on: bool) -> serde_json::Value {
     let mut m = serde_json::Map::new();
     for (i, ch) in CHANNELS.iter().enumerate() {
@@ -553,6 +548,7 @@ fn levels_json(l: &[f32; 2 * N + 4], mic_on: bool) -> serde_json::Value {
     serde_json::Value::Object(m)
 }
 
+/// Atomic replace so the app never reads half a file.
 fn write_atomic(path: &Path, data: &[u8]) {
     let tmp = path.with_extension("tmp");
     if std::fs::write(&tmp, data).is_ok() {
@@ -919,10 +915,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .register()?;
 
-    // Auto-routing: move matching app streams to their channel via the "default" metadata.
-    // The registry global only carries a few props, so each new stream is bound once to read
-    // application.process.binary from its full info. The metadata belongs to WirePlumber; when it
-    // restarts, the metadata comes back empty, so every target we own is written again.
+    // Auto-routing binds each new stream once: the registry global lacks application.process.binary.
     let registry = core.get_registry_rc()?;
     let reg_weak = registry.downgrade();
     let router: Rc<RefCell<Router>> = Rc::new(RefCell::new(Router::default()));
@@ -1037,9 +1030,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .register();
 
-    // One timer does all the control work: config reload, night mode, device targets,
-    // microphone on demand, reconnects and the state file the app reads for meters and lists.
-    // stat() + state file every 50 ms is cheap enough; a socket would only pay off with more traffic
+    // One 50 ms timer does all control work; stat() and a state file cost less than a socket at this traffic.
     // None: the first tick reads the file once more, which also catches a write since the start
     let last = Cell::new(None);
     // last text that loaded, and the tick since which the file has been unreadable
