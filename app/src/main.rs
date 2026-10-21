@@ -57,7 +57,8 @@ fn age(path: &std::path::Path) -> Option<std::time::Duration> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()?.elapsed().ok()
 }
 
-/// A running core rewrites state.json every 50 ms. The protocol it speaks, if it wrote within 2 s.
+/// A running core rewrites state.json at least once a second. The protocol it speaks, if it wrote
+/// within 2 s.
 fn fresh_proto() -> Option<u64> {
     let path = runtime_dir().join("mixpilot").join("state.json");
     if age(&path)? > std::time::Duration::from_secs(2) {
@@ -323,17 +324,29 @@ fn private_dir(path: &std::path::Path, uid: u32) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir() && m.uid() == uid && m.mode() & 0o077 == 0)
 }
 
-/// Live data from the core: meters, apps, events. `mic_test` keeps the microphone open while the
-/// microphone page is visible (the core closes it 3 s after the last touch).
+/// Touches a file the core watches, at most once a second; it counts a touch for 3 s.
+fn touch(path: PathBuf, last: &std::sync::Mutex<Option<Instant>>) {
+    let mut last = last.lock().unwrap_or_else(|e| e.into_inner());
+    if last.is_none_or(|t| t.elapsed() >= Duration::from_secs(1)) {
+        *last = Some(Instant::now());
+        let _ = std::fs::write(path, b"");
+    }
+}
+
+/// Live data from the core: meters, apps, events. Asking for it makes the core write it at 20 Hz
+/// instead of once a second. `mic_test` keeps the microphone open while the microphone page is visible.
 #[tauri::command]
 fn get_state(mic_test: bool) -> Result<Value, String> {
+    static VIEWER: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+    static MIC: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
     // a crashed core leaves its last state behind; never show frozen meters
     if !core_running() {
         return Err("core not running".into());
     }
     let dir = runtime_dir().join("mixpilot");
+    touch(dir.join("viewer"), &VIEWER);
     if mic_test {
-        let _ = std::fs::write(dir.join("mic-test"), b"");
+        touch(dir.join("mic-test"), &MIC);
     }
     let text = std::fs::read(dir.join("state.json")).map_err(|e| e.to_string())?;
     serde_json::from_slice(&text).map_err(|e| e.to_string())

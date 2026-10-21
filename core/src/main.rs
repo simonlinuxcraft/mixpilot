@@ -1058,6 +1058,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (mic_seen, mic_want) = (Cell::new(u32::MAX), RefCell::new(None::<String>));
     let (mic_on, mic_idle, mic_wait) = (Cell::new(false), Cell::new(0u32), Cell::new(0u32));
     let mic_test = state_dir.join("mic-test");
+    let viewer = state_dir.join("viewer");
     let state_file = state_dir.join("state.json");
     let (p, rcfg, rt, ap, ev, lv) = (params.clone(), cfg.clone(), router.clone(), apps.clone(), events.clone(), levels.clone());
     let (out, src_on, mic, merr, devs, defs) = (output.clone(), src_links.clone(), mic_in.clone(), mic_err.clone(), devices.clone(), defaults.clone());
@@ -1203,7 +1204,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // state for the app: meters, apps, events
+        // state for the app: meters, apps, events; 20 Hz only while a window shows them
+        if !fresh(&viewer, 3) && !tick.is_multiple_of(20) {
+            return;
+        }
         let l = lv.take();
         let mut list: Vec<_> = ap
             .borrow()

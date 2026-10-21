@@ -10,13 +10,13 @@ mkdir -p "$W/cfg/mixpilot"
 BIN=./target/release/mixpilot-core
 STATE=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/mixpilot/state.json
 FAILS=0
-D= FEED= MEDIA= MUSIC= CHAT= MODS=
+D= FEED= MEDIA= MUSIC= CHAT= MODS= VIEW=
 
 cleanup() {
-  for p in $FEED $MEDIA $MUSIC $CHAT $D; do kill "$p" 2>/dev/null; done
+  for p in $FEED $MEDIA $MUSIC $CHAT $VIEW $D; do kill "$p" 2>/dev/null; done
   wait 2>/dev/null
   for m in $MODS; do pactl unload-module "$m" 2>/dev/null; done
-  FEED= MEDIA= MUSIC= CHAT= D= MODS=
+  FEED= MEDIA= MUSIC= CHAT= D= MODS= VIEW=
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
@@ -119,6 +119,22 @@ cfg '{"output":"mp_test_out","input":"mp_test_mic","ducking":true,
 XDG_CONFIG_HOME="$W/cfg" $BIN >"$W/daemon.log" 2>&1 &
 D=$!
 sleep 1.5
+# state writes in 3 s: once a second without a window, 20 Hz while one asks like the app does
+writes() { python3 -c "
+import os,time
+seen=set(); end=time.time()+3
+while time.time()<end:
+    try: seen.add(os.stat('$STATE').st_mtime_ns)
+    except OSError: pass
+    time.sleep(0.005)
+print(len(seen))"; }
+n=$(writes)
+check "state written about once a second without a window ($n in 3 s)" "$(between "$n" 2 5)"
+(while :; do : >"${STATE%/*}/viewer"; sleep 1; done) &
+VIEW=$!
+sleep 0.2
+n=$(writes)
+check "state written at 20 Hz while a window watches ($n in 3 s)" "$(between "$n" 50 62)"
 
 echo "-- microphone"
 check "running" "$(alive)"
