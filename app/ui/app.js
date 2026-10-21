@@ -292,7 +292,8 @@ function bindRange(id, get, set, text) {
 // Mouse wheel over a control changes it (up = more, Shift = 10 steps); the page itself never scrolls.
 document.addEventListener('wheel', (e) => {
   const t = e.target.closest('input');
-  if (!t) return;
+  // Ctrl+wheel zooms the page
+  if (!t || e.ctrlKey) return;
   if (t.type === 'range') {
     e.preventDefault();
     const step = Number(t.step || 1) * (e.shiftKey ? 10 : 1);
