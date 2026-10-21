@@ -787,6 +787,7 @@ async fn open_bug_report(app: AppHandle) -> Result<(), String> {
         .initialization_script(lang_script())
         .inner_size(580.0, 680.0)
         .min_inner_size(420.0, 480.0)
+        .zoom_hotkeys_enabled(true)
         .decorations(false)
         .background_color(tauri::window::Color(0x11, 0x13, 0x16, 0xff))
         // shown only once the page is loaded: showing it earlier blocks the whole app up to 500 ms
