@@ -124,7 +124,8 @@ const fdb = (v) => (v <= 0 ? '-∞ dB' : `${(60 * Math.log10(v / 100)).toFixed(1
 function defaults(c) {
   c.auto ??= true;
   for (const [id] of CHANNELS) {
-    c[id] ??= {};
+    // as in the core: a missing channel starts with its own preset, a channel without one plays flat
+    c[id] ??= { eq: { game: 'gaming', chat: 'voice' }[id] ?? 'flat' };
     c[id].volume ??= 100;
     c[id].mute ??= false;
     c[id].eq ??= 'flat';
