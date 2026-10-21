@@ -30,14 +30,19 @@ fn core_running() -> bool {
     !free
 }
 
+/// Development tree: app/target/release/mixpilot -> core/target/release/mixpilot-core. Only from
+/// there; inside an AppImage mount ../../.. is /tmp, where anyone can put a binary.
+fn dev_core(exe_dir: &std::path::Path) -> Option<PathBuf> {
+    exe_dir.ends_with("app/target/release").then(|| exe_dir.join("../../../core/target/release/mixpilot-core"))
+}
+
 fn core_binary() -> Option<PathBuf> {
     let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
     [
         std::env::var_os("MIXPILOT_CORE").map(PathBuf::from),
         Some(exe_dir.join("mixpilot-core")),
-        // development tree first: app/target/release/mixpilot -> core/target/release/mixpilot-core.
-        // An installed core of another version would be replaced on every window open.
-        Some(exe_dir.join("../../../core/target/release/mixpilot-core")),
+        // before /usr/lib: an installed core of another version would be replaced on every window open
+        dev_core(&exe_dir),
         Some(PathBuf::from("/usr/lib/mixpilot/mixpilot-core")),
     ]
     .into_iter()
@@ -1064,6 +1069,13 @@ mod tests {
         drop(first);
         assert!(app_lock(&path).unwrap().is_some());
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn dev_core_only_from_the_source_tree() {
+        assert!(dev_core(std::path::Path::new("/home/u/mixpilot/app/target/release")).is_some());
+        assert!(dev_core(std::path::Path::new("/tmp/.mount_MixpiXy/usr/bin")).is_none());
+        assert!(dev_core(std::path::Path::new("/usr/bin")).is_none());
     }
 
     #[test]
