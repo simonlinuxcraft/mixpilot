@@ -13,6 +13,8 @@
   --well: #0d0e10;
   --line: #262a30;
   --line2: #30343a;
+  /* slider tracks and unlit meter segments: at least 3:1 against the cards and wells they sit on */
+  --edge: #62676f;
   --text: #e9e6df;
   --muted: #a3a7ae;
   --acc: #ffb547;
@@ -128,6 +130,7 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .meter i.low { background: var(--seg-low); }
 .meter i.mid { background: var(--seg-mid); }
 .meter i.hi { background: var(--seg-hi); }
+.meter i:not(.low, .mid, .hi), .hmeter i:not(.low, .mid, .hi), .eqgrid .ledcol i:not(.low, .mid) { box-shadow: inset 0 0 0 1px var(--edge); }
 .num {
   width: 84px; min-height: 30px; padding: 0 6px; border-radius: 6px; border: 1px solid transparent; background: transparent;
   color: var(--text); font-family: var(--num); font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: center; cursor: text;
@@ -154,11 +157,11 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 /* vertical faders: a rotated horizontal range is the most reliable form in WebKitGTK */
 .fwrap { position: relative; width: 44px; flex: none; }
 .fader { -webkit-appearance: none; appearance: none; position: absolute; width: 200px; height: 44px; left: -78px; top: 78px; transform: rotate(-90deg); background: transparent; margin: 0; cursor: pointer; }
-.fader::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: #08090a; box-shadow: inset 0 0 0 1px var(--line2); }
+.fader::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: #08090a; box-shadow: inset 0 0 0 1px var(--edge); }
 .fader::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 38px; margin-top: -16px; border-radius: 3px; border: 1px solid #555b63; background: linear-gradient(90deg, #2c3036 0 42%, var(--acc) 42% 58%, #2c3036 58%); }
 
 .hz { -webkit-appearance: none; appearance: none; width: 100%; height: 30px; background: transparent; margin: 0; cursor: pointer; }
-.hz::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--line2); }
+.hz::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--edge); }
 .hz::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; margin-top: -7px; border-radius: 50%; border: 3px solid var(--panel); background: var(--acc); }
 
 .switch { flex: none; width: 48px; height: 28px; border-radius: 14px; border: none; padding: 3px; display: flex; justify-content: flex-start; background: var(--line2); cursor: pointer; }
@@ -194,7 +197,7 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .band .freq { color: var(--muted); }
 .bwrap { position: relative; width: 32px; height: 80px; }
 .bslider { -webkit-appearance: none; appearance: none; position: absolute; width: 80px; height: 32px; left: -24px; top: 24px; transform: rotate(-90deg); background: transparent; margin: 0; cursor: pointer; }
-.bslider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--line2); }
+.bslider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--edge); }
 .bslider::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 22px; margin-top: -9px; border-radius: 3px; border: none; background: var(--acc); }
 
 .meter-row { display: flex; align-items: center; gap: 12px; }
