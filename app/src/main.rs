@@ -295,8 +295,32 @@ fn set_default_source(name: String) -> Result<(), String> {
     if ok { Ok(()) } else { Err("Standard-Mikrofon konnte nicht gesetzt werden".into()) }
 }
 
+/// Without XDG_RUNTIME_DIR (a cron job, some containers): the session's /run/user/<uid>, else a
+/// private directory in /tmp. One that another user created or linked there first is never used.
 fn runtime_dir() -> PathBuf {
-    std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir)
+    use std::os::unix::fs::DirBuilderExt;
+    if let Some(d) = std::env::var_os("XDG_RUNTIME_DIR").filter(|d| !d.is_empty()) {
+        return PathBuf::from(d);
+    }
+    let uid = unsafe { libc::getuid() };
+    let run = PathBuf::from(format!("/run/user/{uid}"));
+    if private_dir(&run, uid) {
+        return run;
+    }
+    let tmp = std::env::temp_dir().join(format!("mixpilot-{uid}"));
+    let _ = std::fs::DirBuilder::new().mode(0o700).create(&tmp);
+    if private_dir(&tmp, uid) {
+        return tmp;
+    }
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache").join(format!("mixpilot-run-{uid}"));
+    let _ = std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&home);
+    home
+}
+
+/// A real directory (no symlink) of this user that nobody else can enter.
+fn private_dir(path: &std::path::Path, uid: u32) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir() && m.uid() == uid && m.mode() & 0o077 == 0)
 }
 
 /// Live data from the core: meters, apps, events. `mic_test` keeps the microphone open while the

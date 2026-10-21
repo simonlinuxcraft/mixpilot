@@ -492,8 +492,32 @@ fn event(events: &Events, key: &'static str, args: &[&str]) {
     e.push_back((format!("{h:02}:{m:02}"), key, args.iter().map(|a| a.to_string()).collect()));
 }
 
+/// Without XDG_RUNTIME_DIR (a cron job, some containers): the session's /run/user/<uid>, else a
+/// private directory in /tmp. One that another user created or linked there first is never used.
 fn runtime_dir() -> PathBuf {
-    std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir)
+    use std::os::unix::fs::DirBuilderExt;
+    if let Some(d) = std::env::var_os("XDG_RUNTIME_DIR").filter(|d| !d.is_empty()) {
+        return PathBuf::from(d);
+    }
+    let uid = unsafe { libc::getuid() };
+    let run = PathBuf::from(format!("/run/user/{uid}"));
+    if private_dir(&run, uid) {
+        return run;
+    }
+    let tmp = std::env::temp_dir().join(format!("mixpilot-{uid}"));
+    let _ = std::fs::DirBuilder::new().mode(0o700).create(&tmp);
+    if private_dir(&tmp, uid) {
+        return tmp;
+    }
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache").join(format!("mixpilot-run-{uid}"));
+    let _ = std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&home);
+    home
+}
+
+/// A real directory (no symlink) of this user that nobody else can enter.
+fn private_dir(path: &std::path::Path, uid: u32) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir() && m.uid() == uid && m.mode() & 0o077 == 0)
 }
 
 /// A second instance would create duplicate mixpilot_* nodes. The lock dies with the process.
@@ -1269,6 +1293,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
+
+    #[test]
+    fn runtime_dir_fallback_must_be_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let uid = unsafe { libc::getuid() };
+        let dir = std::env::temp_dir().join(format!("mixpilot-private-test-{}", std::process::id()));
+        let link = dir.with_extension("link");
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::os::unix::fs::symlink(&dir, &link).unwrap();
+        assert!(super::private_dir(&dir, uid));
+        assert!(!super::private_dir(&link, uid), "a symlink is never ours");
+        assert!(!super::private_dir(&dir, uid + 1), "another owner");
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(!super::private_dir(&dir, uid), "others can enter");
+        let _ = std::fs::remove_file(&link);
+        let _ = std::fs::remove_dir(&dir);
+    }
 
     #[test]
     fn refused_second_instance_keeps_pid() {
