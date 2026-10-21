@@ -18,7 +18,8 @@
     <div class="pill" title="Autopilot: Apps automatisch einsortieren, Ducking und Nachtmodus. Aus = alles bleibt, wie du es einstellst.">
       <span id="led" class="led"></span>
       <span>Autopilot</span>
-      <button id="auto" class="switch" role="switch" aria-checked="true" aria-label="Autopilot"><span></span></button>
+      <button id="auto" class="switch" role="switch" aria-checked="true" aria-label="Autopilot" aria-describedby="auto-desc"><span></span></button>
+      <span id="auto-desc" hidden>Autopilot: Apps automatisch einsortieren, Ducking und Nachtmodus. Aus = alles bleibt, wie du es einstellst.</span>
     </div>
     <button id="start-core" class="btn small" hidden>Audio-Kern starten</button>
     <div class="win-btns">
@@ -113,7 +114,8 @@
         <div class="meter-row"><span class="meter-label" id="mic-label">Nach Bearbeitung</span><div class="hmeter" id="mic-meter" role="meter" aria-labelledby="mic-label" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div></div>
         <div class="card-head line">
           <p class="hint" id="default-mic-text"></p>
-          <button id="mic-test" class="btn" title="Nimmt 5 Sekunden auf und spielt sie dir vor, so hören dich die anderen">Mikrofon testen</button>
+          <button id="mic-test" class="btn" title="Nimmt 5 Sekunden auf und spielt sie dir vor, so hören dich die anderen" aria-describedby="mic-test-desc">Mikrofon testen</button>
+          <span id="mic-test-desc" hidden>Nimmt 5 Sekunden auf und spielt sie dir vor, so hören dich die anderen</span>
           <button id="make-default" class="btn primary">Als Standard-Mikrofon setzen</button>
         </div>
       </div>

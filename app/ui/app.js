@@ -524,6 +524,12 @@ function presetChips(box) {
       if (full) {
         b.setAttribute('aria-disabled', 'true');
         b.title = t('Höchstens {0} eigene Presets, lösch zuerst eins', EQ_OWN_MAX);
+        // hidden text still serves as the description for screen readers
+        const why = el('span', null, b.title);
+        why.id = 'new-full';
+        why.hidden = true;
+        b.setAttribute('aria-describedby', why.id);
+        box.append(why);
       }
     }
     // after naming, the focus lands on the preset that is now selected
