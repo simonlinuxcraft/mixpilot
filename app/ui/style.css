@@ -58,7 +58,6 @@ h1, h2, h3 { margin: 0; }
 .tb-btn.heart:hover { background: #3a1d24; color: #ff9aa6; }
 .tb-sep { width: 1px; height: 20px; background: var(--line2); margin: 0 6px; }
 .spacer { flex-grow: 1; }
-.top { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 16px; padding: 12px 20px; background: #141619; border-bottom: 1px solid var(--line); }
 .logo-bg { fill: var(--panel2); stroke: var(--line2); stroke-width: 16; }
 .logo-segs { fill: none; stroke-width: 46; }
 .lg-low { stroke: var(--seg-low); } .lg-mid { stroke: var(--seg-mid); } .lg-hi { stroke: var(--seg-hi); } .lg-off { stroke: var(--seg-off); }
@@ -322,4 +321,3 @@ main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 20px; displa
 .mic-state:not(:disabled) { color: var(--red); cursor: pointer; text-decoration: underline dotted; }
 .news-art { display: flex; align-items: center; justify-content: center; padding: 6px; border-radius: 8px; background: var(--win); overflow: hidden; }
 .mini-ui { flex: none; overflow: hidden; }
-.mini-ui .pressed { background: var(--line2); transform: translateY(1px); }

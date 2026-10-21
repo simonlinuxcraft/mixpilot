@@ -920,15 +920,14 @@ function paintApps(force) {
 
 // device events carry the node name; show what the device pickers show
 function eventText(e) {
-  const args = (e.args || []).map((a) => a);
+  const args = [...(e.args || [])];
   if (e.key === 'output' || e.key === 'input') {
     const d = [...devices.sinks, ...devices.sources].find((x) => x.name === args[0]);
     args[0] = !args[0] ? t('System-Standard') : d ? d.description : args[0];
   }
   // the core names channels in English, Music is the one with a German name
   if (e.key === 'sorted' || e.key === 'moved') args[1] = CHANNELS.find(([id]) => id === String(args[1]).toLowerCase())?.[1] ?? args[1];
-  // e.text: a core from before keyed events
-  return e.text ?? t(EVENTS[e.key] || e.key || '', ...args);
+  return t(EVENTS[e.key] || e.key || '', ...args);
 }
 
 let eventsKey = '';
@@ -1094,48 +1093,6 @@ const NEWS = [
       },
     ],
   },
-  {
-    version: '0.0.3',
-    title: 'Musik-Kanal und EQ pro Kanal',
-    items: [
-      {
-        art: 'mixer',
-        tab: 'mixer',
-        title: 'Musik-Kanal',
-        text: 'Musik hat einen eigenen Kanal neben Media, mit eigener Lautstärke und eigenem Klang. Spotify und andere Player landen automatisch dort.',
-      },
-      {
-        art: 'eq',
-        tab: 'sound',
-        title: 'Ein Preset pro Kanal',
-        text: 'Jeder Kanal hat seinen eigenen Equalizer. Im Mixer wählst du über den EQ-Knopf ein Preset, im Sound-Tab passt du Presets an oder legst neue an.',
-      },
-    ],
-  },
-  {
-    version: '0.0.2',
-    title: 'Push-to-Mute und Presets',
-    items: [
-      {
-        art: 'mute',
-        tab: 'mic',
-        title: 'Push-to-Mute',
-        text: 'Eine Taste schaltet dein Mikrofon stumm und wieder an, auch mitten im Spiel. Einschalten im Mikrofon-Tab, die Taste wählst du im Dialog deines Desktops.',
-      },
-      {
-        art: 'eq',
-        tab: 'sound',
-        title: 'Eigene EQ-Presets',
-        text: 'Stell den Equalizer nach deinem Geschmack ein und speichere die Kurve unter eigenem Namen. Bis zu vier eigene Presets, ein Klick holt sie zurück.',
-      },
-      {
-        art: 'mixer',
-        tab: 'mixer',
-        title: 'Neuer Look',
-        text: 'Der Equalizer zeigt seine Kurve als LED-Anzeige, und der Mixer nutzt das ganze Fenster. Zieh es größer, die Fader wachsen mit.',
-      },
-    ],
-  },
 ];
 
 // LED columns like the level meters. Each art returns a step function the dialog calls every 70 ms.
@@ -1180,70 +1137,6 @@ function mini(box, scale, width, cls = 'card') {
 // a transform does not shrink the layout box, so the stage gets its height once the dialog is shown
 function fitMinis() {
   document.querySelectorAll('.mini-ui').forEach((s) => (s.style.height = `${s.firstElementChild.offsetHeight * s.dataset.scale}px`));
-}
-
-function eqArt(box) {
-  // 288 px: the art cell is 300 px wide with 6 px padding
-  const card = mini(box, 0.48, 600);
-  const name = el('span', 'muted');
-  const title = el('span', 'title', 'Presets ');
-  title.append(name);
-  const chips = el('div', 'chips');
-  const shapes = [['flat', EQ_BUILTIN.flat], ['bass', EQ_BUILTIN.bass], ['voice', EQ_BUILTIN.voice], [t('Mein Kopfhörer'), [6, 5, 3, 0, -2, -2, 1, 4, 3, 1]]];
-  const btns = shapes.map(([n]) => chips.appendChild(el('button', null, presetLabel(n))));
-  const head = el('div', 'card-head wrap');
-  head.append(title, chips);
-  const grid = el('div', 'eqgrid');
-  card.append(head, grid);
-  const paint = eqLeds(grid);
-  const cur = Array(10).fill(0);
-  let n = -1;
-  let tick = 0;
-  return () => {
-    if (tick++ % 26 === 0) {
-      n = (n + 1) % shapes.length;
-      name.textContent = presetLabel(shapes[n][0]);
-      btns.forEach((b, i) => b.setAttribute('aria-pressed', String(i === n)));
-    }
-    // 1 dB per step, like dragging the band sliders
-    shapes[n][1].forEach((v, i) => (cur[i] += Math.sign(v - cur[i])));
-    paint(cur);
-  };
-}
-
-// the push-to-mute part of the microphone tab: each key press flips aktiv and stumm
-function muteArt(box) {
-  const card = mini(box, 0.66, 400);
-  const state = el('button', 'mono mic-state');
-  const head = el('div', 'card-head');
-  head.append(el('span', 'label', t('MIKROFON')), state);
-  const meter = el('div', 'hmeter');
-  const set = makeSegments(meter, 24);
-  const row = el('div', 'meter-row');
-  row.append(el('span', 'meter-label', t('Nach Bearbeitung')), meter);
-  const sw = el('button', 'switch');
-  sw.setAttribute('aria-checked', 'true');
-  sw.append(el('span'));
-  const ptm = el('div', 'card-head line');
-  ptm.append(el('span', 'title small', 'Push-to-Mute'), sw);
-  const key = el('button', 'btn small', t('Strg+Alt+M'));
-  const keyRow = el('div', 'card-head');
-  keyRow.append(el('span', 'title small', t('Taste')), key);
-  card.append(head, row, ptm, keyRow);
-  let tick = 0;
-  let muted = true;
-  let level = 0.6;
-  return () => {
-    const phase = tick++ % 40;
-    if (phase === 0) {
-      muted = !muted;
-      state.textContent = muted ? t('stumm') : t('aktiv');
-      state.disabled = !muted;
-    }
-    key.classList.toggle('pressed', phase < 3);
-    level = Math.max(0.35, Math.min(0.85, level + (Math.random() - 0.45) * 0.2));
-    set(muted ? 0 : level);
-  };
 }
 
 // the mixer strips as they are in the mixer tab, meters moving
@@ -1347,7 +1240,7 @@ function resetArt(box) {
   return () => {};
 }
 
-const NEWS_ART = { eq: eqArt, mute: muteArt, mixer: mixerArt, monitor: monitorArt, reset: resetArt };
+const NEWS_ART = { mixer: mixerArt, monitor: monitorArt, reset: resetArt };
 let newsTimer = null;
 
 function openNews(entry) {
