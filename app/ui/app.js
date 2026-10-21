@@ -646,11 +646,26 @@ function eqLeds(parent) {
 }
 
 // ---------- microphone ----------
+// The level in words for screen readers, same zones as the colours: yellow from -12 dB, red from -3 dB.
+function levelMeter(meter) {
+  const set = makeSegments(meter, 40);
+  let shown = '';
+  return (f) => {
+    set(f);
+    const db = f * 60 - 60;
+    const text = f <= 0 ? t('kein Signal') : db < -12 ? t('zu leise') : db < -3 ? t('gut') : t('zu laut');
+    const now = String(Math.round(f * 10) * 10);
+    if (text + now === shown) return;
+    shown = text + now;
+    meter.setAttribute('aria-valuenow', now);
+    meter.setAttribute('aria-valuetext', text);
+  };
+}
 let setMicMeter = () => {};
 let setMicInMeter = () => {};
 function buildMic() {
-  setMicMeter = makeSegments($('mic-meter'), 40);
-  setMicInMeter = makeSegments($('mic-in-meter'), 40);
+  setMicMeter = levelMeter($('mic-meter'));
+  setMicInMeter = levelMeter($('mic-in-meter'));
   painters.push(() => ($('voice-text').textContent = VOICE_TEXT[cfg.mic.voice] || ''));
   buttonGroup('noise', NOISE, () => cfg.mic.noise, (v) => (cfg.mic.noise = v));
   buttonGroup('deess', DEESS, () => cfg.mic.deess, (v) => (cfg.mic.deess = v));
