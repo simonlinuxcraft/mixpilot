@@ -275,10 +275,18 @@ function numField(input, { get, set, min, max, step = 1, show, toValue = (n) => 
   return input;
 }
 
-function bindRange(id, get, set) {
+// what a screen reader says for a slider, like the readout next to it; written only when it changes
+function valueText(r, s) {
+  if (r.getAttribute('aria-valuetext') !== s) r.setAttribute('aria-valuetext', s);
+}
+
+function bindRange(id, get, set, text) {
   const r = $(id);
   r.addEventListener('input', change(() => set(Number(r.value))));
-  painters.push(() => { if (document.activeElement !== r) r.value = get(); });
+  painters.push(() => {
+    if (document.activeElement !== r) r.value = get();
+    if (text) valueText(r, text());
+  });
 }
 
 // Mouse wheel over a control changes it (up = more, Shift = 10 steps); the page itself never scrolls.
@@ -388,6 +396,8 @@ function strip(id, label, master) {
   painters.push(() => {
     if (document.activeElement !== fader) fader.value = get();
     const muted = master ? masterDev.mute : cfg[id].mute;
+    const level = master ? (masterDev.known ? `${masterDev.volume} %` : t('kein Gerät')) : fdb(cfg[id].volume);
+    valueText(fader, muted ? `${level}, ${t('stumm')}` : level);
 
     mute.setAttribute('aria-pressed', String(muted));
     if (chip) {
@@ -422,7 +432,9 @@ function strip(id, label, master) {
 
 function paintCardsMixer() {
   const c = cfg.chatmix;
-  $('cm-text').textContent = `Game ${c > 0 ? 100 - c : 100} %   Chat ${c < 0 ? 100 + c : 100} %`;
+  const [game, chat] = [c > 0 ? 100 - c : 100, c < 0 ? 100 + c : 100];
+  $('cm-text').textContent = `Game ${game} %   Chat ${chat} %`;
+  valueText($('chatmix'), `Game ${game} %, Chat ${chat} %`);
 }
 
 // ---------- sound ----------
@@ -596,7 +608,7 @@ function buildSound() {
     if (on) cfg.bass = cfg.bass_last || 50;
     else { cfg.bass_last = cfg.bass; cfg.bass = 0; }
   });
-  bindRange('bass', () => cfg.bass, (v) => (cfg.bass = v));
+  bindRange('bass', () => cfg.bass, (v) => (cfg.bass = v), () => `${cfg.bass} %`);
   numField($('bass-value'), { label: t('Bass Boost in Prozent'), get: () => cfg.bass, set: (v) => (cfg.bass = Math.round(v)), min: 0, max: 100, show: () => `${cfg.bass} %` });
   painters.push(() => ($('bass-text').textContent = cfg.bass ? t('+{0} dB unter 100 Hz, mit Schutz gegen Übersteuern.', (cfg.bass * 0.12).toFixed(1)) : t('Aus.')));
   buttonGroup('autovol', AUTOVOL, () => cfg.auto_volume, (v) => (cfg.auto_volume = v));
@@ -636,6 +648,7 @@ function buildSound() {
     const g = curveOf(selP);
     bandEls.forEach((s, i) => {
       if (document.activeElement !== s) s.value = g[i];
+      valueText(s, `${g[i] > 0 ? '+' : ''}${g[i]} dB`);
     });
     paintGrid(g);
   });
@@ -684,7 +697,7 @@ function buildMic() {
   buttonGroup('noise', NOISE, () => cfg.mic.noise, (v) => (cfg.mic.noise = v));
   buttonGroup('deess', DEESS, () => cfg.mic.deess, (v) => (cfg.mic.deess = v));
   buttonGroup('voice', VOICE, () => cfg.mic.voice, (v) => (cfg.mic.voice = v));
-  bindRange('mic-gain', () => cfg.mic.gain, (v) => (cfg.mic.gain = v));
+  bindRange('mic-gain', () => cfg.mic.gain, (v) => (cfg.mic.gain = v), () => `${cfg.mic.gain} %`);
   numField($('gain-text'), { label: t('Mikrofon-Verstärkung in Prozent'), get: () => cfg.mic.gain, set: (v) => (cfg.mic.gain = Math.round(v)), min: 0, max: 200, show: () => `${cfg.mic.gain} %` });
   bindSwitch('agc', () => cfg.mic.agc, (v) => (cfg.mic.agc = v));
   bindSwitch('gate', () => cfg.mic.gate, (v) => (cfg.mic.gate = v));
