@@ -503,16 +503,76 @@ fn pactl(args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct Master {
     volume: u32,
     mute: bool,
 }
 
+/// The last read: device, values, change count at the time of reading, when.
+static MASTER: std::sync::Mutex<Option<(String, Master, u64, Instant)>> = std::sync::Mutex::new(None);
+/// Sink and server changes `pactl subscribe` reported, and whether it runs at all.
+static CHANGES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static SUBSCRIBED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn master_changed() {
+    CHANGES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Device and volume changes from `pactl subscribe`, so the window's poll asks pactl only after one.
+/// Restarts with a growing pause when it ends (pipewire-pulse restarted or not there yet).
+fn watch_master() {
+    std::thread::spawn(|| {
+        let mut delay = Duration::from_secs(1);
+        loop {
+            let started = Instant::now();
+            let mut cmd = Command::new("pactl");
+            cmd.arg("subscribe").env("LC_ALL", "C").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+            // the kernel ends it with this thread, which lives as long as the app
+            unsafe {
+                cmd.pre_exec(|| {
+                    libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+                    Ok(())
+                });
+            }
+            if let Ok(mut child) = cmd.spawn() {
+                if let Some(out) = child.stdout.take() {
+                    master_changed();
+                    SUBSCRIBED.store(true, std::sync::atomic::Ordering::SeqCst);
+                    for line in std::io::BufRead::lines(std::io::BufReader::new(out)).map_while(Result::ok) {
+                        if line.contains(" on sink #") || line.contains(" on server") {
+                            master_changed();
+                        }
+                    }
+                }
+                SUBSCRIBED.store(false, std::sync::atomic::Ordering::SeqCst);
+                let _ = child.wait();
+            }
+            if started.elapsed() > Duration::from_secs(60) {
+                delay = Duration::from_secs(1);
+            }
+            std::thread::sleep(delay);
+            delay = (delay * 2).min(Duration::from_secs(60));
+        }
+    });
+}
+
 /// Master is the volume of the output device itself, the same one GNOME and the volume keys change.
 #[tauri::command(async)]
 fn get_master() -> Result<Master, String> {
+    static WATCH: std::sync::Once = std::sync::Once::new();
+    WATCH.call_once(watch_master);
     let sink = output_sink();
+    let seen = CHANGES.load(std::sync::atomic::Ordering::SeqCst);
+    // read again after 5 s anyway: an event can get lost while subscribe is still connecting
+    if SUBSCRIBED.load(std::sync::atomic::Ordering::SeqCst)
+        && let Some((s, m, at_change, at)) = &*MASTER.lock().unwrap_or_else(|e| e.into_inner())
+        && *s == sink
+        && *at_change == seen
+        && at.elapsed() < Duration::from_secs(5)
+    {
+        return Ok(m.clone());
+    }
     let vol = pactl(&["get-sink-volume", &sink])?;
     let volume = vol
         .split('/')
@@ -520,11 +580,13 @@ fn get_master() -> Result<Master, String> {
         .and_then(|p| p.trim().trim_end_matches('%').trim().parse().ok())
         .ok_or("unknown volume format")?;
     let mute = pactl(&["get-sink-mute", &sink])?.contains("yes");
+    *MASTER.lock().unwrap_or_else(|e| e.into_inner()) = Some((sink, Master { volume, mute }, seen, Instant::now()));
     Ok(Master { volume, mute })
 }
 
 #[tauri::command(async)]
 fn set_master(volume: u32) -> Result<(), String> {
+    master_changed();
     pactl(&["set-sink-volume", &output_sink(), &format!("{}%", volume.min(150))])
         .map(|_| ())
         .map_err(|e| { eprintln!("mixpilot: pactl: {e}"); "Lautstärke des Ausgabegeräts konnte nicht geändert werden".to_string() })
@@ -532,6 +594,7 @@ fn set_master(volume: u32) -> Result<(), String> {
 
 #[tauri::command(async)]
 fn set_master_mute(mute: bool) -> Result<(), String> {
+    master_changed();
     pactl(&["set-sink-mute", &output_sink(), if mute { "1" } else { "0" }])
         .map(|_| ())
         .map_err(|e| { eprintln!("mixpilot: pactl: {e}"); "Lautstärke des Ausgabegeräts konnte nicht geändert werden".to_string() })
