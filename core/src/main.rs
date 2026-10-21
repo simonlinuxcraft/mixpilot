@@ -16,7 +16,7 @@ use std::io::{Cursor, Write};
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering::Relaxed};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime};
 
@@ -33,10 +33,11 @@ use spa::pod::{serialize::PodSerializer, Object, Pod, Value};
 use config::{index_of, Config, CHANNELS};
 use dsp::{run5, sanitize, Agc, Biquad, Chain5, DeEsser, Envelope, Eq10, Gate, Leveler, Limiter, Smooth};
 
-/// ~100 ms of stereo audio. Anything older is dropped so latency cannot creep up.
-const RING_MAX: usize = 48_000 / 10 * 2;
-/// ~250 ms of mono microphone audio, enough to start reading at a quantum of 8192.
-const MIC_RING_MAX: usize = 48_000 / 4;
+/// Two cycles of stereo audio at quantum 8192, the largest PipeWire allows by default. The output
+/// keeps at most three of its own cycles, so latency cannot creep up.
+const RING_MAX: usize = 8192 * 2 * 2;
+/// 1 s of mono microphone audio: two 8192 blocks on top of the reader's slack, see Elastic.
+const MIC_RING_MAX: usize = 48_000;
 const BASS_FREQ: f32 = 100.0;
 const FRAME: usize = DenoiseState::FRAME_SIZE;
 /// main loop tick; config polling, level snapshots and reconnects all run on it
@@ -53,7 +54,6 @@ struct Params {
     gain: [AtomicU32; N],
     /// per channel the 10 band gains of its preset
     ch_eq: [[AtomicU32; 10]; N],
-    master: AtomicU32,
     bass_db: AtomicU32,
     limiter: AtomicBool,
     clarity: AtomicBool,
@@ -66,6 +66,8 @@ struct Params {
     mic_voice: AtomicU32,
     mic_deess: AtomicU32,
     monitor: AtomicBool,
+    /// samples per capture cycle, written by the microphone callback for the readers of its rings
+    mic_block: AtomicUsize,
 }
 
 fn put(a: &AtomicU32, v: f32) {
@@ -90,7 +92,6 @@ impl Params {
                 put(a, if g.is_finite() { g.clamp(-12.0, 12.0) } else { 0.0 });
             }
         }
-        put(&self.master, dsp::fader_to_gain(cfg.master));
         put(&self.bass_db, if night { 0.0 } else { cfg.bass.clamp(0.0, 100.0) * 0.12 });
         self.limiter.store(cfg.limiter, Relaxed);
         self.clarity.store(cfg.clarity, Relaxed);
@@ -160,7 +161,6 @@ fn format_pod(channels: u32) -> Vec<u8> {
 /// Output mix state, owned by the output stream's realtime callback.
 struct Mix {
     gains: [Smooth; N],
-    master: Smooth,
     duck: Smooth,
     duck_env: Envelope,
     ch_eq: [[Eq10; 2]; N],
@@ -176,7 +176,6 @@ impl Mix {
     fn new() -> Self {
         Self {
             gains: [Smooth::new(0.0, 20.0); N],
-            master: Smooth::new(0.0, 20.0),
             duck: Smooth::new(1.0, 200.0),
             duck_env: Envelope::new(400.0),
             ch_eq: Default::default(),
@@ -330,11 +329,7 @@ impl MicDsp {
     }
 }
 
-/// Plays a ring the microphone fills in 480-sample RNNoise blocks on its own clock. That clock is
-/// often another device's and runs a little faster or slower than the reader's, and either side may
-/// come first in a cycle. The reading speed follows the lowest fill level seen before a read (cubic
-/// interpolation, at most 0.5 % off), so the ring neither runs dry nor grows. A dropout buys 10 ms
-/// more headroom, given back after ten clean minutes.
+/// The microphone fills its ring on another device's clock, so the reader follows the fill level at up to 0.5 % off speed.
 #[derive(Default)]
 struct Elastic {
     playing: bool,
@@ -351,9 +346,11 @@ struct Elastic {
 }
 
 impl Elastic {
-    /// Once per callback, before `next`. False means silence this time, nothing is taken.
-    fn start(&mut self, ring: &mut VecDeque<f32>, frames: usize) -> bool {
+    /// Once per callback, before `next`, with the writer's samples per cycle. False means silence
+    /// this time, nothing is taken.
+    fn start(&mut self, ring: &mut VecDeque<f32>, frames: usize, block: usize) -> bool {
         let goal = frames + FRAME / 2 + self.extra;
+        let block = block.div_ceil(FRAME).max(1) * FRAME;
         let mut len = ring.len();
         if !self.playing {
             if len < goal + FRAME {
@@ -372,9 +369,10 @@ impl Elastic {
             return false;
         }
         self.frames = frames;
-        if len > goal + 6 * FRAME {
+        // two writer blocks can land between reads when the clocks slip past each other
+        if len > goal + 2 * block + 4 * FRAME {
             // a stall left a backlog: jump instead of catching up for seconds
-            ring.drain(..len - goal - FRAME);
+            ring.drain(..len - goal - block);
             len = ring.len();
         }
         self.low = self.low.min(len);
@@ -486,8 +484,32 @@ fn event(events: &Events, key: &'static str, args: &[&str]) {
     e.push_back((format!("{h:02}:{m:02}"), key, args.iter().map(|a| a.to_string()).collect()));
 }
 
+/// Without XDG_RUNTIME_DIR (a cron job, some containers): the session's /run/user/<uid>, else a
+/// private directory in /tmp. One that another user created or linked there first is never used.
 fn runtime_dir() -> PathBuf {
-    std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir)
+    use std::os::unix::fs::DirBuilderExt;
+    if let Some(d) = std::env::var_os("XDG_RUNTIME_DIR").filter(|d| !d.is_empty()) {
+        return PathBuf::from(d);
+    }
+    let uid = unsafe { libc::getuid() };
+    let run = PathBuf::from(format!("/run/user/{uid}"));
+    if private_dir(&run, uid) {
+        return run;
+    }
+    let tmp = std::env::temp_dir().join(format!("mixpilot-{uid}"));
+    let _ = std::fs::DirBuilder::new().mode(0o700).create(&tmp);
+    if private_dir(&tmp, uid) {
+        return tmp;
+    }
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache").join(format!("mixpilot-run-{uid}"));
+    let _ = std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&home);
+    home
+}
+
+/// A real directory (no symlink) of this user that nobody else can enter.
+fn private_dir(path: &std::path::Path, uid: u32) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir() && m.uid() == uid && m.mode() & 0o077 == 0)
 }
 
 /// A second instance would create duplicate mixpilot_* nodes. The lock dies with the process.
@@ -515,7 +537,6 @@ fn fresh(path: &Path, secs: u64) -> bool {
         .is_ok_and(|t| SystemTime::now().duration_since(t).is_ok_and(|d| d.as_secs() < secs))
 }
 
-/// Atomic replace so the app never reads half a file.
 fn levels_json(l: &[f32; 2 * N + 4], mic_on: bool) -> serde_json::Value {
     let mut m = serde_json::Map::new();
     for (i, ch) in CHANNELS.iter().enumerate() {
@@ -527,6 +548,7 @@ fn levels_json(l: &[f32; 2 * N + 4], mic_on: bool) -> serde_json::Value {
     serde_json::Value::Object(m)
 }
 
+/// Atomic replace so the app never reads half a file.
 fn write_atomic(path: &Path, data: &[u8]) {
     let tmp = path.with_extension("tmp");
     if std::fs::write(&tmp, data).is_ok() {
@@ -694,7 +716,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let ducking = p.ducking.load(Relaxed);
             let monitor = p.monitor.load(Relaxed);
             let targets: [f32; N] = std::array::from_fn(|i| load(&p.gain[i]));
-            let target_master = load(&p.master);
             let mut locked: [_; N] = std::array::from_fn(|i| lock(&out_rings[i]));
             // keep app audio at most ~3 cycles behind; anything older is a backlog, not a buffer
             for ring in locked.iter_mut() {
@@ -706,7 +727,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let mut mon = lock(&mon_ring);
             let mon_play = if monitor {
-                mon_el.start(&mut mon, frames)
+                mon_el.start(&mut mon, frames, p.mic_block.load(Relaxed))
             } else {
                 mon.clear();
                 mon_el = Elastic::default();
@@ -750,9 +771,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     l *= g;
                     r *= g;
                 }
-                let m = mix.master.next(target_master);
-                l *= m;
-                r *= m;
                 if mon_play {
                     let v = mon_el.next(&mut mon);
                     l += v * 0.8;
@@ -806,7 +824,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // A stream node runs even without links (it always gets a driver), so its state says nothing
     // about listeners. Links whose output is this node are counted instead (registry below).
     let src_links: Rc<RefCell<HashSet<u32>>> = Rc::new(RefCell::new(HashSet::new()));
-    let src_out = mic_out.clone();
+    let (src_out, src_p) = (mic_out.clone(), params.clone());
     let mut src_el = Elastic::default();
     let src_listener = mic_src
         .add_local_listener_with_user_data(())
@@ -820,7 +838,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 frames = frames.min(req);
             }
             let mut ring = lock(&src_out);
-            let play = src_el.start(&mut ring, frames);
+            let play = src_el.start(&mut ring, frames, src_p.mic_block.load(Relaxed));
             for f in 0..frames {
                 let v = if play { src_el.next(&mut ring) } else { 0.0 };
                 bytes[f * 4..f * 4 + 4].copy_from_slice(&v.to_le_bytes());
@@ -874,6 +892,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(bytes) = d.data() else { return };
             let start = off.min(bytes.len());
             let end = start.saturating_add(size).min(bytes.len());
+            p.mic_block.store((end - start) / 4, Relaxed);
             let mut out = lock(&mo);
             let monitor = p.monitor.load(Relaxed);
             let mut mon = lock(&mm);
@@ -896,10 +915,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .register()?;
 
-    // Auto-routing: move matching app streams to their channel via the "default" metadata.
-    // The registry global only carries a few props, so each new stream is bound once to read
-    // application.process.binary from its full info. The metadata belongs to WirePlumber; when it
-    // restarts, the metadata comes back empty, so every target we own is written again.
+    // Auto-routing binds each new stream once: the registry global lacks application.process.binary.
     let registry = core.get_registry_rc()?;
     let reg_weak = registry.downgrade();
     let router: Rc<RefCell<Router>> = Rc::new(RefCell::new(Router::default()));
@@ -1014,9 +1030,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .register();
 
-    // One timer does all the control work: config reload, night mode, device targets,
-    // microphone on demand, reconnects and the state file the app reads for meters and lists.
-    // stat() + state file every 50 ms is cheap enough; a socket would only pay off with more traffic
+    // One 50 ms timer does all control work; stat() and a state file cost less than a socket at this traffic.
     // None: the first tick reads the file once more, which also catches a write since the start
     let last = Cell::new(None);
     // last text that loaded, and the tick since which the file has been unreadable
@@ -1027,6 +1041,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (mic_seen, mic_want) = (Cell::new(u32::MAX), RefCell::new(None::<String>));
     let (mic_on, mic_idle, mic_wait) = (Cell::new(false), Cell::new(0u32), Cell::new(0u32));
     let mic_test = state_dir.join("mic-test");
+    let viewer = state_dir.join("viewer");
     let state_file = state_dir.join("state.json");
     let (p, rcfg, rt, ap, ev, lv) = (params.clone(), cfg.clone(), router.clone(), apps.clone(), events.clone(), levels.clone());
     let (out, src_on, mic, merr, devs, defs) = (output.clone(), src_links.clone(), mic_in.clone(), mic_err.clone(), devices.clone(), defaults.clone());
@@ -1046,7 +1061,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     *good.borrow_mut() = Some(t);
                     let n = c.auto && c.night.active_at(local_time().0);
                     p.apply(&c, n);
-                    nightc.set(n);
+                    if n != nightc.get() {
+                        nightc.set(n);
+                        event(&ev, if n { "night_on" } else { "night_off" }, &[]);
+                    }
                     // rules may have changed: move running apps where they belong now
                     let mut r = rt.borrow_mut();
                     for (id, app) in ap.borrow_mut().iter_mut() {
@@ -1169,7 +1187,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // state for the app: meters, apps, events
+        // state for the app: meters, apps, events; 20 Hz only while a window shows them
+        if !fresh(&viewer, 3) && !tick.is_multiple_of(20) {
+            return;
+        }
         let l = lv.take();
         let mut list: Vec<_> = ap
             .borrow()
@@ -1261,6 +1282,24 @@ mod tests {
     use std::collections::VecDeque;
 
     #[test]
+    fn runtime_dir_fallback_must_be_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let uid = unsafe { libc::getuid() };
+        let dir = std::env::temp_dir().join(format!("mixpilot-private-test-{}", std::process::id()));
+        let link = dir.with_extension("link");
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::os::unix::fs::symlink(&dir, &link).unwrap();
+        assert!(super::private_dir(&dir, uid));
+        assert!(!super::private_dir(&link, uid), "a symlink is never ours");
+        assert!(!super::private_dir(&dir, uid + 1), "another owner");
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(!super::private_dir(&dir, uid), "others can enter");
+        let _ = std::fs::remove_file(&link);
+        let _ = std::fs::remove_dir(&dir);
+    }
+
+    #[test]
     fn refused_second_instance_keeps_pid() {
         let path = std::env::temp_dir().join(format!("mixpilot-lock-test-{}", std::process::id()));
         let held = super::single_instance(&path).expect("first lock");
@@ -1332,23 +1371,37 @@ mod tests {
         (bad_reads, fill / reads as f64)
     }
 
+    fn elastic_run(qi: usize, qo: usize, ppm: f64, jitter: f64) -> (usize, f64) {
+        let mut el = super::Elastic::default();
+        let (bad, fill) = simulate(qi, qo, ppm, jitter, 300.0, |ring, out| {
+            if !el.start(ring, out.len(), qi) {
+                out.fill(0.0);
+                return false;
+            }
+            out.iter_mut().for_each(|o| *o = el.next(ring));
+            true
+        });
+        println!("in {qi} out {qo} {ppm:+} ppm jitter {:.0} ms: {bad} bad reads in 5 min, mean fill {fill:.0}", jitter * 1000.0);
+        (bad, fill)
+    }
+
     #[test]
     fn microphone_ring_survives_two_clocks() {
-        use super::Elastic;
         for (qi, qo, ppm, jitter) in [(1024, 1024, 0.0, 0.0), (1024, 1024, 200.0, 0.001), (1024, 1024, -200.0, 0.001), (256, 1024, 500.0, 0.001), (1024, 256, -500.0, 0.001), (480, 2048, 100.0, 0.002), (1024, 1024, 0.0, 0.003)] {
-            let mut el = Elastic::default();
-            let (bad, fill) = simulate(qi, qo, ppm, jitter, 300.0, |ring, out| {
-                if !el.start(ring, out.len()) {
-                    out.fill(0.0);
-                    return false;
-                }
-                out.iter_mut().for_each(|o| *o = el.next(ring));
-                true
-            });
-            println!("in {qi} out {qo} {ppm:+} ppm jitter {:.0} ms: {bad} bad reads in 5 min, mean fill {fill:.0}", jitter * 1000.0);
+            let (bad, fill) = elastic_run(qi, qo, ppm, jitter);
             // one dropout may teach it the headroom, after that it has to hold, at most ~40 ms behind
             assert!(bad <= 2, "{bad} bad reads with in {qi} out {qo} {ppm} ppm");
             assert!(fill < qo as f64 + 2000.0, "mean fill {fill:.0} with in {qi} out {qo} {ppm} ppm");
+        }
+    }
+
+    #[test]
+    fn microphone_ring_keeps_large_blocks() {
+        for (qi, qo, ppm, jitter) in [(4096, 1024, 200.0, 0.001), (8192, 1024, -200.0, 0.001), (4096, 4096, 200.0, 0.002), (8192, 8192, -200.0, 0.002), (1024, 8192, 100.0, 0.001)] {
+            let (bad, fill) = elastic_run(qi, qo, ppm, jitter);
+            assert!(bad <= 2, "{bad} bad reads with in {qi} out {qo} {ppm} ppm");
+            // a whole block of either side may sit in the ring, never more
+            assert!(fill < (qi + qo) as f64 + 2000.0, "mean fill {fill:.0} with in {qi} out {qo} {ppm} ppm");
         }
     }
 }

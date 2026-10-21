@@ -29,7 +29,7 @@ const EQ_LABEL = { flat: 'Flat', bass: 'Bass', voice: t('Stimme'), gaming: 'Gami
 // more own presets would wrap the chips and push the sound tab into scrolling
 const EQ_OWN_MAX = 4;
 const isBuiltIn = (k) => Object.hasOwn(EQ_BUILTIN, k);
-const presetLabel = (k) => EQ_LABEL[k] || k;
+const presetLabel = (k) => (isBuiltIn(k) ? EQ_LABEL[k] : k);
 const presetKeys = () => [...Object.keys(EQ_BUILTIN), ...Object.keys(cfg.eq_presets)];
 const curveOf = (k) => (isBuiltIn(k) ? cfg.eq_edits[k] || EQ_BUILTIN[k] : cfg.eq_presets[k] || EQ_BUILTIN.flat);
 // a channel whose own preset is gone plays flat, the core does the same
@@ -124,18 +124,19 @@ const fdb = (v) => (v <= 0 ? '-∞ dB' : `${(60 * Math.log10(v / 100)).toFixed(1
 function defaults(c) {
   c.auto ??= true;
   for (const [id] of CHANNELS) {
-    c[id] ??= {};
+    // as in the core: a missing channel starts with its own preset, a channel without one plays flat
+    c[id] ??= { eq: { game: 'gaming', chat: 'voice' }[id] ?? 'flat' };
     c[id].volume ??= 100;
     c[id].mute ??= false;
     c[id].eq ??= 'flat';
   }
-  c.master ??= 100;
   c.chatmix ??= 0;
   c.bass ??= 0;
   c.limiter ??= true;
   c.clarity ??= false;
   c.auto_volume ??= 'off';
-  c.eq_presets = curves(c.eq_presets);
+  // no prototype: a preset named "__proto__" or "toString" is a plain key, never an inherited one
+  c.eq_presets = Object.assign(Object.create(null), curves(c.eq_presets));
   c.eq_edits = Object.fromEntries(Object.entries(curves(c.eq_edits)).filter(([k]) => isBuiltIn(k)));
   // up to 0.0.2 one equalizer worked on everything; a tuned curve stays as an own preset
   if (Array.isArray(c.eq)) {
@@ -224,6 +225,8 @@ function numField(input, { get, set, min, max, step = 1, show, toValue = (n) => 
   input.spellcheck = false;
   input.setAttribute('aria-label', label);
   const commit = () => {
+    // blur after Enter, Esc or Tab: an untouched field must not round the value or save
+    if (input.value === show()) return;
     const n = parseFloat(input.value.replace(',', '.').replace(/[^0-9.+-]/g, ''));
     if (Number.isFinite(n)) {
       const v = Math.min(max, Math.max(min, toValue(n)));
@@ -539,7 +542,8 @@ function openEqMenu(id, chip) {
       e.preventDefault();
       items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus();
     } else if (e.key === 'Escape' || e.key === 'Tab') {
-      closeEqMenu(e.key === 'Escape');
+      // Tab then moves on from the chip, not from the removed menu
+      closeEqMenu(true);
     }
   });
   document.body.append(box);
@@ -1416,11 +1420,6 @@ async function init() {
   if (initialized) return;
   initialized = true;
   defaults(cfg);
-  // the internal master stage from earlier builds stays at unity; volume is the device's job now
-  if (cfg.master !== 100) {
-    cfg.master = 100;
-    save();
-  }
   const box = $('strips');
   for (const [id, label] of CHANNELS) box.append(strip(id, label, false));
   box.append(el('div', 'sep'), strip('master', 'Master', true));

@@ -10,13 +10,13 @@ mkdir -p "$W/cfg/mixpilot"
 BIN=./target/release/mixpilot-core
 STATE=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/mixpilot/state.json
 FAILS=0
-D= FEED= MEDIA= MUSIC= CHAT= MODS=
+D= FEED= MEDIA= MUSIC= CHAT= MODS= VIEW=
 
 cleanup() {
-  for p in $FEED $MEDIA $MUSIC $CHAT $D; do kill "$p" 2>/dev/null; done
+  for p in $FEED $MEDIA $MUSIC $CHAT $VIEW $D; do kill "$p" 2>/dev/null; done
   wait 2>/dev/null
   for m in $MODS; do pactl unload-module "$m" 2>/dev/null; done
-  FEED= MEDIA= MUSIC= CHAT= D= MODS=
+  FEED= MEDIA= MUSIC= CHAT= D= MODS= VIEW=
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
@@ -119,6 +119,22 @@ cfg '{"output":"mp_test_out","input":"mp_test_mic","ducking":true,
 XDG_CONFIG_HOME="$W/cfg" $BIN >"$W/daemon.log" 2>&1 &
 D=$!
 sleep 1.5
+# state writes in 3 s: once a second without a window, 20 Hz while one asks like the app does
+writes() { python3 -c "
+import os,time
+seen=set(); end=time.time()+3
+while time.time()<end:
+    try: seen.add(os.stat('$STATE').st_mtime_ns)
+    except OSError: pass
+    time.sleep(0.005)
+print(len(seen))"; }
+n=$(writes)
+check "state written about once a second without a window ($n in 3 s)" "$(between "$n" 2 5)"
+(while :; do : >"${STATE%/*}/viewer"; sleep 1; done) &
+VIEW=$!
+sleep 0.2
+n=$(writes)
+check "state written at 20 Hz while a window watches ($n in 3 s)" "$(between "$n" 50 62)"
 
 echo "-- microphone"
 check "running" "$(alive)"
@@ -180,7 +196,7 @@ cfg '{"mic":{"gate":false,"noise":"off","monitor":true}}'
 feed tone.wav
 # 4096 needs a raised max-quantum, some setups run that way to save power
 pw-metadata -n settings 0 clock.max-quantum 8192 >/dev/null
-for q in 256 1024 4096; do
+for q in 256 1024 4096 8192; do
   pw-metadata -n settings 0 clock.force-quantum $q >/dev/null
   sleep 1
   : >"$W/g.wav"
@@ -190,10 +206,20 @@ for q in 256 1024 4096; do
   timeout 4 pw-record -P '{ stream.capture.sink=true }' --target mp_test_out --rate 48000 --channels 1 --format s16 "$W/m.wav" >/dev/null 2>&1
   check "no dropouts when monitoring at quantum $q" "$(n=$(gaps "$W/m.wav"); [ "$n" = 0 ] && echo ok || echo "$n dropouts")"
 done
-pw-metadata -n settings 0 clock.force-quantum 0 >/dev/null
-pw-metadata -n settings 0 clock.max-quantum 0 >/dev/null
 cfg '{"mic":{"monitor":false}}'
 kill $FEED; FEED=
+pw-cat -p --target mp_test_out -P '{ node.name=mp_test_media application.name=mp_test_media }' "$W/tone.wav" >/dev/null 2>&1 &
+MEDIA=$!
+for q in 256 1024 4096 8192; do
+  pw-metadata -n settings 0 clock.force-quantum $q >/dev/null
+  sleep 1
+  : >"$W/c.wav"
+  timeout 4 pw-record -P '{ stream.capture.sink=true }' --target mp_test_out --rate 48000 --channels 1 --format s16 "$W/c.wav" >/dev/null 2>&1
+  check "no dropouts in a channel at quantum $q" "$(n=$(gaps "$W/c.wav"); [ "$n" = 0 ] && echo ok || echo "$n dropouts")"
+done
+kill $MEDIA; MEDIA=
+pw-metadata -n settings 0 clock.force-quantum 0 >/dev/null
+pw-metadata -n settings 0 clock.max-quantum 0 >/dev/null
 sleep 3
 check "microphone closes again after the listener left" "$(grep -Fq 'mic_paused' "$W/daemon.log" && echo ok || echo 'still open')"
 

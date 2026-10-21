@@ -88,7 +88,7 @@ check "alive after device returns" "$(alive)"
 
 echo "-- garbage configs"
 # valid ones carry empty rules so the built-in rules never touch the user's real apps
-for c in '' 'null' '[]' '{"game":{"volume":"loud"}}' '{"game":{"volume":1e309}}' '{"output":"mixpilot_test_hw","rules":[],"chatmix":-99999,"bass":99999,"master":-5}' '{"output":"mixpilot_test_hw","rules":[{"match":"mp","channel":""}]}'; do
+for c in '' 'null' '[]' '{"game":{"volume":"loud"}}' '{"game":{"volume":1e309}}' '{"output":"mixpilot_test_hw","rules":[],"chatmix":-99999,"bass":99999}' '{"output":"mixpilot_test_hw","rules":[{"match":"mp","channel":""}]}'; do
   printf '%s' "$c" >"$W/cfg/mixpilot/config.json"; sleep 0.7
 done
 check "alive after garbage configs" "$(alive)"
@@ -96,9 +96,9 @@ check "alive after garbage configs" "$(alive)"
 echo "-- broken config"
 C="$W/cfg/mixpilot/config.json"
 backups() { ls "$W/cfg/mixpilot" | grep -c '^config.json.broken-'; }
-# ok when the config has master/bass as given and a note naming a backup
-note() { python3 -I -c "import json,sys; c=json.load(open(sys.argv[1])); print('ok' if (c.get('master'),c.get('bass'))==(float(sys.argv[2]),float(sys.argv[3])) and '.broken-' in str(c.get('config_reset')) else c)" "$C" "$1" "$2" 2>&1 | tail -1; }
-good='{"output":"mixpilot_test_hw","master":80,"bass":30,"rules":[]}'
+# ok when the config has chatmix/bass as given and a note naming a backup
+note() { python3 -I -c "import json,sys; c=json.load(open(sys.argv[1])); print('ok' if (c.get('chatmix'),c.get('bass'))==(float(sys.argv[2]),float(sys.argv[3])) and '.broken-' in str(c.get('config_reset')) else c)" "$C" "$1" "$2" 2>&1 | tail -1; }
+good='{"output":"mixpilot_test_hw","chatmix":80,"bass":30,"rules":[]}'
 printf '%s' "$good" >"$C"; sleep 0.5
 printf '%s' '{"output":"x\u0000y","rules":[]}' >"$C"; sleep 0.5
 check "alive with a NUL in the output name" "$(alive)"
@@ -122,7 +122,7 @@ b0=$(backups)
 start
 check "alive after starting with an empty config" "$(alive)"
 check "empty file kept as a backup" "$( [ "$(backups)" = $((b0 + 1)) ] && echo ok || echo "$b0 -> $(backups) backups")"
-check "defaults in its place, with a note" "$(note 100 0)"
+check "defaults in its place, with a note" "$(note 0 0)"
 
 echo
 [ $FAILS = 0 ] && echo "ALL OK" || echo "$FAILS FAILED (log $W/daemon.log)"

@@ -113,7 +113,6 @@ pub struct Config {
     pub media: Channel,
     pub music: Channel,
     pub aux: Channel,
-    pub master: f32,
     /// -100 (Chat down) ..= 100 (Game down)
     pub chatmix: f32,
     /// 0..=100, maps to 0..=12 dB low shelf
@@ -150,7 +149,6 @@ impl Default for Config {
             media: Channel::default(),
             music: Channel::default(),
             aux: Channel::default(),
-            master: 100.0,
             chatmix: 0.0,
             bass: 0.0,
             limiter: true,
@@ -427,15 +425,15 @@ mod tests {
         let c: Config = serde_json::from_str(r#"{"chat":{"volume":40}}"#).unwrap();
         assert_eq!(c.chat.volume, 40.0);
         assert!(!c.chat.mute);
-        assert_eq!(c.master, 100.0);
+        assert!(c.limiter);
         let c: Config = serde_json::from_str(r#"{"rules":[{"match":"","channel":"game"},{"match":"x","channel":"nope"},{"match":"x","channel":"game"}]}"#).unwrap();
         // first match decides, "nope" keeps it out even though a later rule would match
         assert_eq!(c.channel_for(&[Some("anything x"), None, None]), None);
         assert!(parse("[]").is_err());
         assert!(parse("null").is_err());
         assert!(parse("{").is_err());
-        assert!(parse(r#"{"master":1e309}"#).is_err());
-        assert_eq!(parse("{}").unwrap().master, 100.0);
+        assert!(parse(r#"{"bass":1e309}"#).is_err());
+        assert!(parse("{}").unwrap().limiter);
     }
 
     fn backups(dir: &Path) -> Vec<PathBuf> {
@@ -455,7 +453,7 @@ mod tests {
         // at start: the defaults take its place, the broken text survives next to it
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(&path, "").unwrap();
-        assert_eq!(load_or_create(&path).master, 100.0);
+        assert!(load_or_create(&path).limiter);
         let b = backups(&dir);
         assert_eq!(b.len(), 1);
         assert_eq!(std::fs::read_to_string(&b[0]).unwrap(), "");
@@ -464,10 +462,10 @@ mod tests {
         std::fs::remove_file(&b[0]).unwrap();
 
         // while running: the last text that loaded comes back, keys only the app knows included
-        std::fs::write(&path, r#"{"master":"loud"}"#).unwrap();
-        recover(&path, Some(r#"{"master":40,"setup_done":true}"#));
+        std::fs::write(&path, r#"{"bass":"loud"}"#).unwrap();
+        recover(&path, Some(r#"{"bass":40,"setup_done":true}"#));
         let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!((v["master"].as_f64(), v["setup_done"].as_bool()), (Some(40.0), Some(true)));
+        assert_eq!((v["bass"].as_f64(), v["setup_done"].as_bool()), (Some(40.0), Some(true)));
         assert_eq!(note(&path), Some(backups(&dir)[0].clone()));
 
         // a deleted file was deleted on purpose

@@ -30,14 +30,19 @@ fn core_running() -> bool {
     !free
 }
 
+/// Development tree: app/target/release/mixpilot -> core/target/release/mixpilot-core. Only from
+/// there; inside an AppImage mount ../../.. is /tmp, where anyone can put a binary.
+fn dev_core(exe_dir: &std::path::Path) -> Option<PathBuf> {
+    exe_dir.ends_with("app/target/release").then(|| exe_dir.join("../../../core/target/release/mixpilot-core"))
+}
+
 fn core_binary() -> Option<PathBuf> {
     let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
     [
         std::env::var_os("MIXPILOT_CORE").map(PathBuf::from),
         Some(exe_dir.join("mixpilot-core")),
-        // development tree first: app/target/release/mixpilot -> core/target/release/mixpilot-core.
-        // An installed core of another version would be replaced on every window open.
-        Some(exe_dir.join("../../../core/target/release/mixpilot-core")),
+        // before /usr/lib: an installed core of another version would be replaced on every window open
+        dev_core(&exe_dir),
         Some(PathBuf::from("/usr/lib/mixpilot/mixpilot-core")),
     ]
     .into_iter()
@@ -52,7 +57,8 @@ fn age(path: &std::path::Path) -> Option<std::time::Duration> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()?.elapsed().ok()
 }
 
-/// A running core rewrites state.json every 50 ms. The protocol it speaks, if it wrote within 2 s.
+/// A running core rewrites state.json at least once a second. The protocol it speaks, if it wrote
+/// within 2 s.
 fn fresh_proto() -> Option<u64> {
     let path = runtime_dir().join("mixpilot").join("state.json");
     if age(&path)? > std::time::Duration::from_secs(2) {
@@ -62,13 +68,20 @@ fn fresh_proto() -> Option<u64> {
     Some(v.get("proto").and_then(Value::as_u64).unwrap_or(0))
 }
 
+/// A core still starting or a busy machine can leave the state a few seconds old, that is no reason
+/// to cut the audio; the lock is rewritten when a core starts.
+fn core_hung() -> bool {
+    let quiet = |name: &str| age(&runtime_dir().join(name)).is_none_or(|a| a > std::time::Duration::from_secs(10));
+    core_running() && quiet("mixpilot.lock") && quiet("mixpilot/state.json")
+}
+
 /// A core that speaks another protocol is an older version (after an update), one that has written
 /// nothing for 10 s is hung. Either is stopped by PID so a current one can take over.
 fn replace_stale_core() {
     // Once per app run at most: if the only core binary around speaks another protocol, replacing it
     // again on every window open would cut the audio each time.
     static REPLACED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    if !core_running() || REPLACED.load(std::sync::atomic::Ordering::Relaxed) {
+    if !core_running() {
         return;
     }
     let mut other = false;
@@ -82,43 +95,18 @@ fn replace_stale_core() {
             None => std::thread::sleep(std::time::Duration::from_millis(50)),
         }
     }
-    // a core still starting or a busy machine can leave the state a few seconds old, that is no reason
-    // to cut the audio; the lock is rewritten when a core starts
-    let quiet = |name: &str| age(&runtime_dir().join(name)).is_none_or(|a| a > std::time::Duration::from_secs(10));
-    if !other && !(quiet("mixpilot.lock") && quiet("mixpilot/state.json")) {
+    let keep = if other { REPLACED.swap(true, std::sync::atomic::Ordering::Relaxed) } else { !core_hung() };
+    if keep {
         return;
     }
-    REPLACED.store(true, std::sync::atomic::Ordering::Relaxed);
     eprintln!("mixpilot: replacing an older or hung core");
     stop_core();
 }
 
-/// True if the process was started with the given XDG_RUNTIME_DIR, i.e. belongs to that session.
-fn same_runtime(pid: i32, dir: &std::path::Path) -> bool {
-    let Ok(env) = std::fs::read(format!("/proc/{pid}/environ")) else { return false };
-    let want = format!("XDG_RUNTIME_DIR={}", dir.display());
-    env.split(|b| *b == 0).any(|kv| kv == want.as_bytes())
-}
-
-/// Cores of this user that belong to this session. A core from another session (a test instance,
-/// a second login) is never touched.
-fn core_pids() -> Vec<i32> {
-    let dir = runtime_dir();
+/// The core of this session: every published core writes its PID into this session's lock.
+fn core_pid() -> Option<i32> {
     let is_core = |pid: &i32| std::fs::read_to_string(format!("/proc/{pid}/comm")).is_ok_and(|c| c.trim() == "mixpilot-core");
-    // A current core writes its PID into this session's lock. The pgrep route stays for older cores,
-    // it fails inside the snap, which may not read /proc/<pid>/environ.
-    let locked = std::fs::read_to_string(dir.join("mixpilot.lock")).ok().and_then(|s| s.trim().parse().ok()).filter(|p| core_running() && is_core(p));
-    let uid = unsafe { libc::getuid() }.to_string();
-    let out = Command::new("pgrep").args(["-u", &uid, "-x", "mixpilot-core"]).output().map(|o| o.stdout).unwrap_or_default();
-    let mut pids: Vec<i32> = String::from_utf8_lossy(&out)
-        .lines()
-        .filter_map(|l| l.trim().parse().ok())
-        .filter(|&pid| same_runtime(pid, &dir))
-        .chain(locked)
-        .collect();
-    pids.sort_unstable();
-    pids.dedup();
-    pids
+    std::fs::read_to_string(runtime_dir().join("mixpilot.lock")).ok().and_then(|s| s.trim().parse().ok()).filter(|p| core_running() && is_core(p))
 }
 
 // ensure_core runs off the main thread and the watchdog has its own; two starts at once would race
@@ -165,20 +153,22 @@ fn start_core() -> Result<(), String> {
 }
 
 /// The core ends itself when PipeWire goes away (a restart, an update, a crash) or a channel fails,
-/// and nothing else would bring it back. Waits longer each time it dies young, so a system without
-/// PipeWire or a snap without its permissions is not hammered.
+/// and nothing else would bring it back; a hung one is replaced, also with the window closed. Waits
+/// longer each time it dies young, so a system without PipeWire or a snap without its permissions is
+/// not hammered.
 fn watch_core() {
     std::thread::spawn(|| {
         let mut delay = Duration::from_secs(2);
         let mut last = Instant::now();
         loop {
             std::thread::sleep(Duration::from_secs(2));
-            if core_running() {
+            let hung = core_hung();
+            if core_running() && !hung {
                 if last.elapsed() > Duration::from_secs(60) {
                     delay = Duration::from_secs(2);
                 }
             } else if last.elapsed() >= delay {
-                eprintln!("mixpilot: audio core not running, starting it again");
+                eprintln!("mixpilot: audio core {}, starting it again", if hung { "hung" } else { "not running" });
                 if let Err(e) = start_core() {
                     eprintln!("mixpilot: {e}");
                 }
@@ -187,6 +177,11 @@ fn watch_core() {
             }
         }
     });
+}
+
+/// Even `async` commands run on a Tokio worker; anything that waits on a process goes to the blocking pool.
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -279,21 +274,57 @@ fn set_default_source(name: String) -> Result<(), String> {
     if ok { Ok(()) } else { Err("Standard-Mikrofon konnte nicht gesetzt werden".into()) }
 }
 
+/// Without XDG_RUNTIME_DIR (a cron job, some containers): the session's /run/user/<uid>, else a
+/// private directory in /tmp. One that another user created or linked there first is never used.
 fn runtime_dir() -> PathBuf {
-    std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir)
+    use std::os::unix::fs::DirBuilderExt;
+    if let Some(d) = std::env::var_os("XDG_RUNTIME_DIR").filter(|d| !d.is_empty()) {
+        return PathBuf::from(d);
+    }
+    let uid = unsafe { libc::getuid() };
+    let run = PathBuf::from(format!("/run/user/{uid}"));
+    if private_dir(&run, uid) {
+        return run;
+    }
+    let tmp = std::env::temp_dir().join(format!("mixpilot-{uid}"));
+    let _ = std::fs::DirBuilder::new().mode(0o700).create(&tmp);
+    if private_dir(&tmp, uid) {
+        return tmp;
+    }
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache").join(format!("mixpilot-run-{uid}"));
+    let _ = std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&home);
+    home
 }
 
-/// Live data from the core: meters, apps, events. `mic_test` keeps the microphone open while the
-/// microphone page is visible (the core closes it 3 s after the last touch).
+/// A real directory (no symlink) of this user that nobody else can enter.
+fn private_dir(path: &std::path::Path, uid: u32) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir() && m.uid() == uid && m.mode() & 0o077 == 0)
+}
+
+/// Touches a file the core watches, at most once a second; it counts a touch for 3 s.
+fn touch(path: PathBuf, last: &std::sync::Mutex<Option<Instant>>) {
+    let mut last = last.lock().unwrap_or_else(|e| e.into_inner());
+    if last.is_none_or(|t| t.elapsed() >= Duration::from_secs(1)) {
+        *last = Some(Instant::now());
+        let _ = std::fs::write(path, b"");
+    }
+}
+
+/// Live data from the core: meters, apps, events. Asking for it makes the core write it at 20 Hz
+/// instead of once a second. `mic_test` keeps the microphone open while the microphone page is visible.
 #[tauri::command]
 fn get_state(mic_test: bool) -> Result<Value, String> {
+    static VIEWER: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+    static MIC: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
     // a crashed core leaves its last state behind; never show frozen meters
     if !core_running() {
         return Err("core not running".into());
     }
     let dir = runtime_dir().join("mixpilot");
+    touch(dir.join("viewer"), &VIEWER);
     if mic_test {
-        let _ = std::fs::write(dir.join("mic-test"), b"");
+        touch(dir.join("mic-test"), &MIC);
     }
     let text = std::fs::read(dir.join("state.json")).map_err(|e| e.to_string())?;
     serde_json::from_slice(&text).map_err(|e| e.to_string())
@@ -307,8 +338,12 @@ fn mic_test_file() -> PathBuf {
 static MIC_TEST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Five seconds of the processed voice, the same signal Discord and OBS get.
-#[tauri::command(async)]
-fn mic_test_record() -> Result<(), String> {
+#[tauri::command]
+async fn mic_test_record() -> Result<(), String> {
+    blocking(record_mic_test).await?
+}
+
+fn record_mic_test() -> Result<(), String> {
     // without the core there is no Mixpilot microphone, WirePlumber would hand pw-record the raw one
     if !core_running() {
         return Err("Audio-Kern gestoppt".into());
@@ -345,8 +380,12 @@ fn record_five_seconds(file: &std::path::Path) -> Result<(), String> {
     if std::fs::metadata(file).is_ok_and(|m| m.len() > 44) { Ok(()) } else { Err("Aufnahme fehlgeschlagen".into()) }
 }
 
-#[tauri::command(async)]
-fn mic_test_play() -> Result<(), String> {
+#[tauri::command]
+async fn mic_test_play() -> Result<(), String> {
+    blocking(play_mic_test).await?
+}
+
+fn play_mic_test() -> Result<(), String> {
     let file = mic_test_file();
     // on the device Mixpilot plays to, which may differ from the system default
     let mut play = Command::new("pw-play");
@@ -379,8 +418,6 @@ fn get_autostart() -> bool {
 /// Starts Mixpilot at login in the tray, without a window; the app then starts the audio core.
 #[tauri::command]
 fn set_autostart(on: bool) -> Result<(), String> {
-    // earlier builds started only the core from here
-    let _ = std::fs::remove_file(autostart_dir().join("mixpilot-core.desktop"));
     let file = autostart_file();
     if !on {
         return match std::fs::remove_file(&file) {
@@ -442,16 +479,76 @@ fn pactl(args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct Master {
     volume: u32,
     mute: bool,
 }
 
+/// The last read: device, values, change count at the time of reading, when.
+static MASTER: std::sync::Mutex<Option<(String, Master, u64, Instant)>> = std::sync::Mutex::new(None);
+/// Sink and server changes `pactl subscribe` reported, and whether it runs at all.
+static CHANGES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static SUBSCRIBED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn master_changed() {
+    CHANGES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Device and volume changes from `pactl subscribe`, so the window's poll asks pactl only after one.
+/// Restarts with a growing pause when it ends (pipewire-pulse restarted or not there yet).
+fn watch_master() {
+    std::thread::spawn(|| {
+        let mut delay = Duration::from_secs(1);
+        loop {
+            let started = Instant::now();
+            let mut cmd = Command::new("pactl");
+            cmd.arg("subscribe").env("LC_ALL", "C").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+            // the kernel ends it with this thread, which lives as long as the app
+            unsafe {
+                cmd.pre_exec(|| {
+                    libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+                    Ok(())
+                });
+            }
+            if let Ok(mut child) = cmd.spawn() {
+                if let Some(out) = child.stdout.take() {
+                    master_changed();
+                    SUBSCRIBED.store(true, std::sync::atomic::Ordering::SeqCst);
+                    for line in std::io::BufRead::lines(std::io::BufReader::new(out)).map_while(Result::ok) {
+                        if line.contains(" on sink #") || line.contains(" on server") {
+                            master_changed();
+                        }
+                    }
+                }
+                SUBSCRIBED.store(false, std::sync::atomic::Ordering::SeqCst);
+                let _ = child.wait();
+            }
+            if started.elapsed() > Duration::from_secs(60) {
+                delay = Duration::from_secs(1);
+            }
+            std::thread::sleep(delay);
+            delay = (delay * 2).min(Duration::from_secs(60));
+        }
+    });
+}
+
 /// Master is the volume of the output device itself, the same one GNOME and the volume keys change.
 #[tauri::command(async)]
 fn get_master() -> Result<Master, String> {
+    static WATCH: std::sync::Once = std::sync::Once::new();
+    WATCH.call_once(watch_master);
     let sink = output_sink();
+    let seen = CHANGES.load(std::sync::atomic::Ordering::SeqCst);
+    // read again after 5 s anyway: an event can get lost while subscribe is still connecting
+    if SUBSCRIBED.load(std::sync::atomic::Ordering::SeqCst)
+        && let Some((s, m, at_change, at)) = &*MASTER.lock().unwrap_or_else(|e| e.into_inner())
+        && *s == sink
+        && *at_change == seen
+        && at.elapsed() < Duration::from_secs(5)
+    {
+        return Ok(m.clone());
+    }
     let vol = pactl(&["get-sink-volume", &sink])?;
     let volume = vol
         .split('/')
@@ -459,11 +556,13 @@ fn get_master() -> Result<Master, String> {
         .and_then(|p| p.trim().trim_end_matches('%').trim().parse().ok())
         .ok_or("unknown volume format")?;
     let mute = pactl(&["get-sink-mute", &sink])?.contains("yes");
+    *MASTER.lock().unwrap_or_else(|e| e.into_inner()) = Some((sink, Master { volume, mute }, seen, Instant::now()));
     Ok(Master { volume, mute })
 }
 
 #[tauri::command(async)]
 fn set_master(volume: u32) -> Result<(), String> {
+    master_changed();
     pactl(&["set-sink-volume", &output_sink(), &format!("{}%", volume.min(150))])
         .map(|_| ())
         .map_err(|e| { eprintln!("mixpilot: pactl: {e}"); "Lautstärke des Ausgabegeräts konnte nicht geändert werden".to_string() })
@@ -471,6 +570,7 @@ fn set_master(volume: u32) -> Result<(), String> {
 
 #[tauri::command(async)]
 fn set_master_mute(mute: bool) -> Result<(), String> {
+    master_changed();
     pactl(&["set-sink-mute", &output_sink(), if mute { "1" } else { "0" }])
         .map(|_| ())
         .map_err(|e| { eprintln!("mixpilot: pactl: {e}"); "Lautstärke des Ausgabegeräts konnte nicht geändert werden".to_string() })
@@ -516,14 +616,8 @@ fn open_support() {
 }
 
 const BUG_EMAIL: &str = "simonlinuxcraft@pm.me";
-/// Set at build time only, never in the source: a proxy URL (key stays on the server) or a Web3Forms key.
+/// The proxy URL, set at build time only (the Web3Forms key stays on the server); without it, mail.
 const BUG_PROXY: Option<&str> = option_env!("MIXPILOT_BUG_URL");
-const BUG_KEY: Option<&str> = option_env!("MIXPILOT_WEB3FORMS_KEY");
-
-fn first_line_with(cmd: &str, args: &[&str], needle: &str) -> Option<String> {
-    let out = output_within(Command::new(cmd).args(args).env("LC_ALL", "C"), CMD_LIMIT).ok()?;
-    String::from_utf8_lossy(&out.stdout).lines().find(|l| l.contains(needle)).map(|l| l.trim().to_string())
-}
 
 fn package() -> &'static str {
     if std::env::var_os("SNAP").is_some() {
@@ -562,7 +656,10 @@ fn system_info() -> String {
     };
     let env = |k: &str| std::env::var(k).unwrap_or_else(|_| "-".into());
     let package = package();
-    let server = first_line_with("pactl", &["info"], "Server Name").unwrap_or_else(|| "pactl info: n/a".into());
+    let server = output_within(Command::new("pactl").arg("info").env("LC_ALL", "C"), CMD_LIMIT)
+        .ok()
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).lines().find(|l| l.contains("Server Name")).map(|l| l.trim().to_string()))
+        .unwrap_or_else(|| "pactl info: n/a".into());
     let cfg = get_config().unwrap_or(Value::Null);
     let pick = |p: &str| cfg.pointer(p).map(|v| v.to_string()).unwrap_or_else(|| "-".into());
     format!(
@@ -597,10 +694,10 @@ struct BugInfo {
     log: String,
 }
 
-// async: system_info asks pactl, which must never block the main thread (window and tray)
-#[tauri::command(async)]
-fn bug_info() -> BugInfo {
-    BugInfo { can_send: BUG_PROXY.is_some() || BUG_KEY.is_some(), email: BUG_EMAIL.into(), info: system_info(), log: core_log_tail(60) }
+// system_info asks pactl, which must never block the main thread (window and tray)
+#[tauri::command]
+async fn bug_info() -> Result<BugInfo, String> {
+    blocking(|| BugInfo { can_send: BUG_PROXY.is_some(), email: BUG_EMAIL.into(), info: system_info(), log: core_log_tail(60) }).await
 }
 
 #[derive(serde::Deserialize)]
@@ -610,6 +707,9 @@ struct BugReport {
     email: String,
     include_info: bool,
     include_log: bool,
+    // the texts the preview showed, not a fresh read at send time
+    info: String,
+    log: String,
 }
 
 fn report_text(r: &BugReport) -> String {
@@ -618,34 +718,32 @@ fn report_text(r: &BugReport) -> String {
         t += &format!("\n\n--- Error messages ---\n{}", r.errors.trim());
     }
     if r.include_info {
-        t += &format!("\n\n--- System ---\n{}", system_info());
+        t += &format!("\n\n--- System ---\n{}", r.info.trim());
     }
     if r.include_log {
-        t += &format!("\n\n--- Core log (last 60 lines) ---\n{}", core_log_tail(60));
+        t += &format!("\n\n--- Core log (last 60 lines) ---\n{}", r.log);
     }
     t += &format!("\n\nUser-Email: {}", if r.email.trim().is_empty() { "(not provided)" } else { r.email.trim() });
     t
 }
 
-/// Sends through the proxy or Web3Forms with curl (present on every desktop, staged in the snap).
+/// Sends through the proxy with curl (present on every desktop, staged in the snap).
 #[tauri::command]
 async fn send_bug_report(report: BugReport) -> Result<(), String> {
+    blocking(move || post_bug_report(&report)).await?
+}
+
+fn post_bug_report(report: &BugReport) -> Result<(), String> {
     if report.description.trim().len() < 5 {
         return Err("Bitte beschreib kurz, was passiert ist.".into());
     }
-    let url = BUG_PROXY.unwrap_or("https://api.web3forms.com/submit");
-    if BUG_PROXY.is_none() && BUG_KEY.is_none() {
-        return Err("no-endpoint".into());
-    }
+    let Some(url) = BUG_PROXY else { return Err("no-endpoint".into()) };
     let mut payload = serde_json::json!({
         "subject": format!("Mixpilot Bug Report v{}", env!("CARGO_PKG_VERSION")),
         "from_name": "Mixpilot App",
-        "message": report_text(&report),
+        "message": report_text(report),
         "botcheck": "",
     });
-    if let (None, Some(key)) = (BUG_PROXY, BUG_KEY) {
-        payload["access_key"] = Value::String(key.into());
-    }
     if !report.email.trim().is_empty() {
         payload["email"] = Value::String(report.email.trim().into());
     }
@@ -689,6 +787,7 @@ async fn open_bug_report(app: AppHandle) -> Result<(), String> {
         .initialization_script(lang_script())
         .inner_size(580.0, 680.0)
         .min_inner_size(420.0, 480.0)
+        .zoom_hotkeys_enabled(true)
         .decorations(false)
         .background_color(tauri::window::Color(0x11, 0x13, 0x16, 0xff))
         // shown only once the page is loaded: showing it earlier blocks the whole app up to 500 ms
@@ -769,14 +868,9 @@ fn listen(app: AppHandle) {
 /// Stops the audio core: all apps fall back to their normal device.
 /// SIGKILL after 2 s: a core hung in its main loop would otherwise keep its nodes and swallow the audio.
 fn stop_core() {
-    let pids = core_pids();
-    if pids.is_empty() {
-        return;
-    }
+    let Some(pid) = core_pid() else { return };
     for sig in [libc::SIGTERM, libc::SIGKILL] {
-        for &pid in &pids {
-            unsafe { libc::kill(pid, sig) };
-        }
+        unsafe { libc::kill(pid, sig) };
         for _ in 0..40 {
             if !core_running() {
                 return;
@@ -843,14 +937,14 @@ fn hotkey_status() -> hotkey::Status {
     hotkey::status()
 }
 
-#[tauri::command(async)]
-fn set_hotkey(on: bool) -> Result<hotkey::Status, String> {
-    hotkey::send(if on { hotkey::Cmd::On } else { hotkey::Cmd::Off })
+#[tauri::command]
+async fn set_hotkey(on: bool) -> Result<hotkey::Status, String> {
+    blocking(move || hotkey::send(if on { hotkey::Cmd::On } else { hotkey::Cmd::Off })).await?
 }
 
-#[tauri::command(async)]
-fn change_hotkey() -> Result<hotkey::Status, String> {
-    hotkey::send(hotkey::Cmd::Change)
+#[tauri::command]
+async fn change_hotkey() -> Result<hotkey::Status, String> {
+    blocking(|| hotkey::send(hotkey::Cmd::Change)).await?
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
@@ -984,10 +1078,6 @@ fn main() {
             listen(handle.clone());
             let restore = get_config().ok().and_then(|c| c["mic_hotkey"].as_bool()).unwrap_or(false);
             hotkey::start(restore, toggle_mic_mute);
-            // an older autostart entry that only started the core is replaced by the tray app
-            if autostart_dir().join("mixpilot-core.desktop").is_file() {
-                let _ = set_autostart(true);
-            }
             if !background {
                 show_window(&handle);
             }
@@ -1011,18 +1101,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_processes_of_the_same_session_match() {
-        let mut child = Command::new("sleep").arg("5").env("XDG_RUNTIME_DIR", "/tmp/mixpilot-session-a").spawn().unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        let pid = child.id() as i32;
-        let a = same_runtime(pid, std::path::Path::new("/tmp/mixpilot-session-a"));
-        let b = same_runtime(pid, std::path::Path::new("/run/user/1000"));
-        let _ = child.kill();
-        let _ = child.wait();
-        assert!(a && !b);
-    }
-
-    #[test]
     fn config_path_respects_xdg() {
         // SAFETY: single-threaded test
         unsafe { std::env::set_var("XDG_CONFIG_HOME", "/x") };
@@ -1038,6 +1116,28 @@ mod tests {
         drop(first);
         assert!(app_lock(&path).unwrap().is_some());
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn dev_core_only_from_the_source_tree() {
+        assert!(dev_core(std::path::Path::new("/home/u/mixpilot/app/target/release")).is_some());
+        assert!(dev_core(std::path::Path::new("/tmp/.mount_MixpiXy/usr/bin")).is_none());
+        assert!(dev_core(std::path::Path::new("/usr/bin")).is_none());
+    }
+
+    #[test]
+    fn report_sends_what_the_preview_showed() {
+        let r = BugReport {
+            description: "it broke".into(),
+            errors: String::new(),
+            email: String::new(),
+            include_info: true,
+            include_log: false,
+            info: "OS: as shown".into(),
+            log: "core: as shown".into(),
+        };
+        let t = report_text(&r);
+        assert!(t.contains("OS: as shown") && !t.contains("core: as shown"));
     }
 
     #[test]
