@@ -248,6 +248,7 @@ const EN = {
   'Danke, dass du hilfst, Mixpilot besser zu machen. Beschreib kurz, was passiert ist und was du erwartet hättest.': 'Thanks for helping to make Mixpilot better. Briefly describe what happened and what you expected.',
   'Was ist passiert?': 'What happened?',
   'Zum Beispiel: Nach dem Einstecken des Headsets ist der Chat-Kanal stumm, obwohl Discord läuft.': 'For example: after plugging in the headset, the Chat channel is silent although Discord is running.',
+  'Mindestens 5 Zeichen, dann lässt sich der Bericht senden.': 'At least 5 characters, then the report can be sent.',
   '+ Fehlermeldungen hinzufügen': '+ Add error messages',
   'Fehlermeldungen': 'Error messages',
   'Text aus einer Fehlermeldung, falls vorhanden': 'Text from an error message, if any',
