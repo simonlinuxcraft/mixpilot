@@ -18,6 +18,7 @@
         "minHeight": 720,
         "create": false,
         "decorations": false,
+        "zoomHotkeysEnabled": true,
         "backgroundColor": "#111316"
       }
     ],

@@ -11,14 +11,15 @@
   <div class="titlebar" data-tauri-drag-region>
     <div class="brand" data-tauri-drag-region>
       <svg width="26" height="26" viewBox="0 0 512 512" aria-hidden="true" data-tauri-drag-region><rect x="16" y="16" width="480" height="480" rx="116" class="logo-bg"></rect><g class="logo-segs"><path d="M144.2 349.8 A146 146 0 0 1 118.8 305.9" class="lg-low"></path><path d="M112.2 281.4 A146 146 0 0 1 112.2 230.6" class="lg-low"></path><path d="M118.8 206.1 A146 146 0 0 1 144.2 162.2" class="lg-low"></path><path d="M162.2 144.2 A146 146 0 0 1 206.1 118.8" class="lg-mid"></path><path d="M230.6 112.2 A146 146 0 0 1 281.4 112.2" class="lg-mid"></path><path d="M305.9 118.8 A146 146 0 0 1 349.8 144.2" class="lg-hi"></path><path d="M367.8 162.2 A146 146 0 0 1 393.2 206.1" class="lg-off"></path><path d="M399.8 230.6 A146 146 0 0 1 399.8 281.4" class="lg-off"></path><path d="M393.2 305.9 A146 146 0 0 1 367.8 349.8" class="lg-off"></path></g><circle cx="256" cy="256" r="84" class="logo-knob"></circle><line x1="268.9" y1="240.7" x2="295.9" y2="208.5" class="logo-ptr"></line></svg>
-      <span class="name" data-tauri-drag-region>MIXPILOT</span>
+      <h1 class="name" data-tauri-drag-region>MIXPILOT</h1>
       <span class="sub" data-tauri-drag-region>Ton für alles, ohne Studio-Diplom</span>
     </div>
-    <span id="core-status" class="core-status"></span>
+    <span id="core-status" class="core-status" aria-live="polite"></span>
     <div class="pill" title="Autopilot: Apps automatisch einsortieren, Ducking und Nachtmodus. Aus = alles bleibt, wie du es einstellst.">
       <span id="led" class="led"></span>
       <span>Autopilot</span>
-      <button id="auto" class="switch" role="switch" aria-checked="true" aria-label="Autopilot"><span></span></button>
+      <button id="auto" class="switch" role="switch" aria-checked="true" aria-label="Autopilot" aria-describedby="auto-desc"><span></span></button>
+      <span id="auto-desc" hidden>Autopilot: Apps automatisch einsortieren, Ducking und Nachtmodus. Aus = alles bleibt, wie du es einstellst.</span>
     </div>
     <button id="start-core" class="btn small" hidden>Audio-Kern starten</button>
     <div class="win-btns">
@@ -37,24 +38,26 @@
       <button id="win-close" class="tb-btn close" title="Schließen, Mixpilot läuft im Hintergrund weiter" aria-label="Schließen"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8"></path></svg></button>
     </div>
   </div>
-  <nav class="tabs" aria-label="Bereiche">
-    <button class="tab" data-tab="mixer" aria-pressed="true">Mixer</button>
-    <button class="tab" data-tab="sound" aria-pressed="false">Sound</button>
-    <button class="tab" data-tab="mic" aria-pressed="false">Mikrofon</button>
-    <button class="tab" data-tab="auto" aria-pressed="false">Automatik</button>
+  <nav class="tabs">
+    <div class="tablist" role="tablist" aria-label="Bereiche">
+      <button class="tab" id="tabbtn-mixer" data-tab="mixer" role="tab" aria-selected="true" aria-controls="tab-mixer">Mixer</button>
+      <button class="tab" id="tabbtn-sound" data-tab="sound" role="tab" aria-selected="false" aria-controls="tab-sound" tabindex="-1">Sound</button>
+      <button class="tab" id="tabbtn-mic" data-tab="mic" role="tab" aria-selected="false" aria-controls="tab-mic" tabindex="-1">Mikrofon</button>
+      <button class="tab" id="tabbtn-auto" data-tab="auto" role="tab" aria-selected="false" aria-controls="tab-auto" tabindex="-1">Automatik</button>
+    </div>
     <span class="spacer"></span>
     <label class="field inline">Ausgabe<select id="output" class="output-select"></select></label>
     <label class="field inline">Eingabe<select id="input" class="input-select"></select></label>
   </nav>
 
   <main>
-    <p id="error" class="error" hidden></p>
+    <p id="error" class="error" role="alert" hidden></p>
 
-    <section id="tab-mixer" class="page">
+    <section id="tab-mixer" class="page" role="tabpanel" aria-labelledby="tabbtn-mixer">
       <div class="strips" id="strips"></div>
       <div class="cols">
         <div class="card grow">
-          <div class="card-head"><span class="label">CHATMIX</span><span id="cm-text" class="mono"></span></div>
+          <div class="card-head"><h2 class="label">CHATMIX</h2><span id="cm-text" class="mono"></span></div>
           <div class="row">
             <span class="end">Game</span>
             <input id="chatmix" class="hz" type="range" min="-100" max="100" step="1" aria-label="ChatMix zwischen Game und Chat">
@@ -63,32 +66,32 @@
           <p class="hint">Ein Regler statt zwei: schiebt die Balance zwischen Spiel und Sprach-Chat.</p>
         </div>
         <div class="card grow2">
-          <span class="label">AUTOPILOT HAT GERADE</span>
+          <h2 class="label">AUTOPILOT HAT GERADE</h2>
           <ul id="events" class="events"></ul>
         </div>
       </div>
     </section>
 
-    <section id="tab-sound" class="page" hidden>
+    <section id="tab-sound" class="page" role="tabpanel" aria-labelledby="tabbtn-sound" hidden>
       <div class="grid">
         <div class="card">
-          <div class="card-head"><span class="title">Bass Boost</span>
+          <div class="card-head"><h2 class="title">Bass Boost</h2>
             <span class="head-right"><input id="bass-value"><button id="bass-on" class="switch" role="switch" aria-checked="false" aria-label="Bass Boost"><span></span></button></span>
           </div>
           <input id="bass" class="hz" type="range" min="0" max="100" step="1" aria-label="Bass Boost Stärke">
           <p class="hint" id="bass-text"></p>
         </div>
         <div class="card">
-          <span class="title">Auto-Lautstärke</span>
+          <h2 class="title">Auto-Lautstärke</h2>
           <div class="seg" id="autovol" role="group" aria-label="Auto-Lautstärke"></div>
           <p class="hint" id="autovol-text"></p>
         </div>
         <div class="card">
-          <div class="card-head"><span class="title">Gehörschutz</span>
+          <div class="card-head"><h2 class="title">Gehörschutz</h2>
             <button id="limiter" class="switch" role="switch" aria-checked="true" aria-label="Gehörschutz"><span></span></button>
           </div>
           <p class="hint">Limiter fängt plötzliche Knalle und Pegelspitzen ab.</p>
-          <div class="card-head line"><span class="title small">Stimmen klarer</span>
+          <div class="card-head line"><h3 class="title small">Stimmen klarer</h3>
             <button id="clarity" class="switch" role="switch" aria-checked="false" aria-label="Stimmen klarer"><span></span></button>
           </div>
           <p class="hint">Hebt Sprache um 3 kHz leicht an, gut für Filme und Streams.</p>
@@ -96,7 +99,7 @@
       </div>
       <div class="card">
         <div class="card-head wrap eq-head">
-          <span class="title">Presets <span id="eq-name" class="muted"></span></span>
+          <h2 class="title">Presets <span id="eq-name" class="muted"></span></h2>
           <p class="hint" id="eq-used"></p>
         </div>
         <div class="chips" id="eq-presets" role="group" aria-label="EQ-Presets"></div>
@@ -104,49 +107,50 @@
       </div>
     </section>
 
-    <section id="tab-mic" class="page" hidden>
+    <section id="tab-mic" class="page" role="tabpanel" aria-labelledby="tabbtn-mic" hidden>
       <div class="card">
-        <div class="card-head"><span class="label">MIKROFON <span id="mic-name"></span></span><button class="mono mic-state" id="mic-state" title="Klicken hebt die Stummschaltung auf" disabled></button></div>
-        <div class="meter-row"><span class="meter-label">Eingang</span><div class="hmeter" id="mic-in-meter"></div></div>
-        <div class="meter-row"><span class="meter-label">Nach Bearbeitung</span><div class="hmeter" id="mic-meter"></div></div>
+        <div class="card-head"><h2 class="label">MIKROFON <span id="mic-name"></span></h2><button class="mono mic-state" id="mic-state" title="Klicken hebt die Stummschaltung auf" disabled></button></div>
+        <div class="meter-row"><span class="meter-label" id="mic-in-label">Eingang</span><div class="hmeter" id="mic-in-meter" role="meter" aria-labelledby="mic-in-label" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div></div>
+        <div class="meter-row"><span class="meter-label" id="mic-label">Nach Bearbeitung</span><div class="hmeter" id="mic-meter" role="meter" aria-labelledby="mic-label" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div></div>
         <div class="card-head line">
           <p class="hint" id="default-mic-text"></p>
-          <button id="mic-test" class="btn" title="Nimmt 5 Sekunden auf und spielt sie dir vor, so hören dich die anderen">Mikrofon testen</button>
+          <button id="mic-test" class="btn" title="Nimmt 5 Sekunden auf und spielt sie dir vor, so hören dich die anderen" aria-describedby="mic-test-desc">Mikrofon testen</button>
+          <span id="mic-test-desc" hidden>Nimmt 5 Sekunden auf und spielt sie dir vor, so hören dich die anderen</span>
           <button id="make-default" class="btn primary">Als Standard-Mikrofon setzen</button>
         </div>
       </div>
       <div class="grid">
         <div class="card">
-          <span class="title">Rauschunterdrückung</span>
+          <h2 class="title">Rauschunterdrückung</h2>
           <div class="seg" id="noise" role="group" aria-label="Rauschunterdrückung"></div>
           <p class="hint">Tastatur, Lüfter und Straße raus, Stimme bleibt.</p>
-          <div class="card-head line"><span class="title small">Noise Gate</span>
+          <div class="card-head line"><h3 class="title small">Noise Gate</h3>
             <button id="gate" class="switch" role="switch" aria-checked="true" aria-label="Noise Gate"><span></span></button>
           </div>
           <p class="hint">Sprechpausen werden still, auch Tippen und Klicken.</p>
-          <div class="card-head line"><span class="title small">S-Laute</span>
+          <div class="card-head line"><h3 class="title small">S-Laute</h3>
             <div class="seg small" id="deess" role="group" aria-label="Scharfe S-Laute entschärfen"></div>
           </div>
           <p class="hint">Entschärft scharfe S- und Zischlaute.</p>
         </div>
         <div class="card">
-          <div class="card-head"><span class="title">Verstärkung</span><input id="gain-text"></div>
+          <div class="card-head"><h2 class="title">Verstärkung</h2><input id="gain-text"></div>
           <input id="mic-gain" class="hz" type="range" min="0" max="200" step="1" aria-label="Mikrofon-Verstärkung">
-          <p class="hint">Beim Sprechen sollte "Eingang" gelb werden.</p>
-          <div class="card-head"><span class="title small">Auto-Pegel</span>
+          <p class="hint">Beim Sprechen sollte "Eingang" fast bis ans rechte Ende reichen, aber nicht ganz.</p>
+          <div class="card-head"><h3 class="title small">Auto-Pegel</h3>
             <button id="agc" class="switch" role="switch" aria-checked="true" aria-label="Auto-Pegel"><span></span></button>
           </div>
           <p class="hint">Gleichmäßig laut, ohne zu übersteuern.</p>
-          <div class="card-head line"><span class="title small">Mithören</span>
+          <div class="card-head line"><h3 class="title small">Mithören</h3>
             <button id="monitor" class="switch" role="switch" aria-checked="false" aria-label="Mithören"><span></span></button>
           </div>
           <p class="hint">Du hörst dich selbst im Kopfhörer, so wie die anderen dich hören.</p>
         </div>
         <div class="card">
-          <span class="title">Stimme</span>
+          <h2 class="title">Stimme</h2>
           <div class="chips" id="voice" role="group" aria-label="Stimm-Preset"></div>
           <p class="hint" id="voice-text"></p>
-          <div class="card-head line"><span class="title small">Push-to-Mute</span>
+          <div class="card-head line"><h3 class="title small">Push-to-Mute</h3>
             <button id="hotkey-on" class="switch" role="switch" aria-checked="false" aria-label="Push-to-Mute"><span></span></button>
           </div>
           <div class="card-head" id="hotkey-row" hidden><span class="title small">Taste</span>
@@ -157,23 +161,23 @@
       </div>
     </section>
 
-    <section id="tab-auto" class="page" hidden>
+    <section id="tab-auto" class="page" role="tabpanel" aria-labelledby="tabbtn-auto" hidden>
       <div class="cols">
         <div class="card grow" id="rules-card">
-          <span class="label">REGELN</span>
+          <h2 class="label">REGELN</h2>
           <p class="hint" id="auto-note"></p>
-          <div class="rule"><div><span class="title small">Ducking</span><p class="hint">Game, Media und Musik 12 dB leiser, solange im Chat gesprochen wird</p></div>
+          <div class="rule"><div><h3 class="title small">Ducking</h3><p class="hint">Game, Media und Musik 12 dB leiser, solange im Chat gesprochen wird</p></div>
             <button id="ducking" class="switch" role="switch" aria-checked="true" aria-label="Ducking"><span></span></button></div>
-          <div class="rule"><div><span class="title small">Neue Apps einsortieren</span><p class="hint">Bekannte Apps automatisch in ihren Kanal</p></div>
+          <div class="rule"><div><h3 class="title small">Neue Apps einsortieren</h3><p class="hint">Bekannte Apps automatisch in ihren Kanal</p></div>
             <button id="auto-route" class="switch" role="switch" aria-checked="true" aria-label="Neue Apps einsortieren"><span></span></button></div>
-          <div class="rule"><div><span class="title small">Nachtmodus</span><p class="hint">Auto-Lautstärke Nacht, Bass aus, von
+          <div class="rule"><div><h3 class="title small">Nachtmodus</h3><p class="hint">Auto-Lautstärke Nacht, Bass aus, von
             <select id="night-from" class="mini" aria-label="Nachtmodus ab"></select> bis <select id="night-to" class="mini" aria-label="Nachtmodus bis"></select> Uhr</p></div>
             <button id="night" class="switch" role="switch" aria-checked="false" aria-label="Nachtmodus"><span></span></button></div>
-          <div class="rule"><div><span class="title small">Mit dem System starten</span><p class="hint">Mixpilot läuft nach dem Anmelden im Hintergrund, ohne Fenster</p></div>
+          <div class="rule"><div><h3 class="title small">Mit dem System starten</h3><p class="hint">Mixpilot läuft nach dem Anmelden im Hintergrund, ohne Fenster</p></div>
             <button id="autostart" class="switch" role="switch" aria-checked="false" aria-label="Mit dem System starten"><span></span></button></div>
         </div>
         <div class="card grow">
-          <span class="label">APPS UND KANÄLE</span>
+          <h2 class="label">APPS UND KANÄLE</h2>
           <div id="apps"></div>
           <p class="hint">Apps, die gerade spielen, und deine gemerkten Zuordnungen. Änderungen gelten sofort.</p>
         </div>
@@ -183,7 +187,7 @@
 </div>
 
 <div id="setup" class="overlay" hidden>
-  <div class="dialog wide" role="dialog" aria-modal="true" aria-labelledby="setup-title">
+  <div class="dialog wide" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="setup-title">
     <div>
       <h1 id="setup-title">Willkommen bei Mixpilot</h1>
       <p class="hint">Kurzer Check, damit alles sauber läuft. Das passiert nur beim ersten Start.</p>
@@ -221,9 +225,9 @@
     <h1 id="about-title">Über Mixpilot</h1>
     <p class="mono" id="about-version"></p>
     <div class="about-info">
-    <span class="title small">Datenschutz</span>
+    <h2 class="title small">Datenschutz</h2>
     <p class="hint">Mixpilot verarbeitet deinen Ton nur auf diesem Rechner und sendet von sich aus nichts. Nur ein Fehlerbericht, den du selbst abschickst, verlässt den Rechner: deine Beschreibung, falls angegeben Fehlermeldungen und deine E-Mail, und wenn du es erlaubst, Systeminfos und das Protokoll des Audio-Kerns.</p>
-    <span class="title small">Verwendete Software</span>
+    <h2 class="title small">Verwendete Software</h2>
     <ul class="credits">
       <li>Barlow Semi Condensed, SIL Open Font License 1.1</li>
       <li>RNNoise über nnnoiseless, BSD-3-Clause</li>

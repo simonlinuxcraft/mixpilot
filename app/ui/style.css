@@ -13,6 +13,8 @@
   --well: #0d0e10;
   --line: #262a30;
   --line2: #30343a;
+  /* slider tracks and unlit meter segments: at least 3:1 against the cards and wells they sit on */
+  --edge: #62676f;
   --text: #e9e6df;
   --muted: #a3a7ae;
   --acc: #ffb547;
@@ -32,15 +34,18 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, "Cantarell", sans-serif; }
 button, select, input { font: inherit; color: inherit; }
-button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--acc2); outline-offset: 2px; }
+button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--acc2); outline-offset: 2px; }
 [hidden] { display: none !important; }
+/* headings for structure only, the classes give them their look */
+h1, h2, h3 { margin: 0; }
 
 /* the app never scrolls as a whole; controls take the mouse wheel instead */
 .app { height: 100vh; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; background: var(--win); border: 1px solid #2a2e34; }
 
 /* own title bar: frameless window, drag anywhere that is not a button */
-.titlebar { display: flex; align-items: center; gap: 12px; height: 46px; padding: 0 6px 0 14px; background: #0f1113; border-bottom: 1px solid var(--line); user-select: none; }
-.titlebar .brand { display: flex; align-items: center; gap: 10px; flex-grow: 1; min-width: 0; height: 100%; }
+/* one row at 100 %; zoomed in, the window buttons wrap into a second row instead of leaving the window */
+.titlebar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; min-height: 46px; padding: 4px 6px 4px 14px; background: #0f1113; border-bottom: 1px solid var(--line); user-select: none; }
+.titlebar .brand { display: flex; align-items: center; gap: 10px; flex: 1 1 200px; min-width: 0; align-self: stretch; }
 .titlebar .name { font-weight: 700; font-size: 15px; letter-spacing: 0.06em; }
 .titlebar .sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .win-btns { display: flex; align-items: center; gap: 2px; }
@@ -53,7 +58,6 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .tb-btn.heart:hover { background: #3a1d24; color: #ff9aa6; }
 .tb-sep { width: 1px; height: 20px; background: var(--line2); margin: 0 6px; }
 .spacer { flex-grow: 1; }
-.top { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 16px; padding: 12px 20px; background: #141619; border-bottom: 1px solid var(--line); }
 .logo-bg { fill: var(--panel2); stroke: var(--line2); stroke-width: 16; }
 .logo-segs { fill: none; stroke-width: 46; }
 .lg-low { stroke: var(--seg-low); } .lg-mid { stroke: var(--seg-mid); } .lg-hi { stroke: var(--seg-hi); } .lg-off { stroke: var(--seg-off); }
@@ -82,11 +86,13 @@ option { background: var(--panel2); color: var(--text); }
 .field.inline { flex-direction: row; align-items: center; gap: 8px; margin-left: 10px; }
 .field.inline select { width: 200px; min-height: 36px; }
 .tab { min-height: 42px; padding: 0 18px; border: none; border-radius: 8px; background: transparent; color: var(--muted); font-weight: 600; cursor: pointer; box-shadow: inset 0 -2px 0 transparent; }
-.tab[aria-pressed="true"] { background: var(--panel2); color: var(--text); box-shadow: inset 0 -2px 0 var(--acc2); }
+.tablist { display: flex; gap: 4px; }
+.tab[aria-selected="true"] { background: var(--panel2); color: var(--text); box-shadow: inset 0 -2px 0 var(--acc2); }
 .core-status { font-size: 12px; color: var(--muted); white-space: nowrap; margin-right: 6px; }
 .core-status.off { color: var(--red); }
 
-main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; display: flex; flex-direction: column; gap: 12px; }
+/* at 100 % everything fits; zoomed in (Ctrl+Plus) the content scrolls instead of being cut off */
+main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 20px; display: flex; flex-direction: column; gap: 12px; }
 .page { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
 .cols { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
 .grow { flex: 1 1 360px; min-width: 0; }
@@ -110,7 +116,7 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 
 /* mixer strips */
 /* the channel strips fill the window, init() gives the rotated faders the matching length */
-.strips { flex: 1 1 auto; min-height: 0; display: flex; gap: 12px; align-items: stretch; }
+.strips { flex: 1 1 auto; min-height: auto; display: flex; gap: 12px; align-items: stretch; }
 .strip { flex: 1 1 150px; min-width: 0; padding: 12px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
 .strip.master { border-color: #3a3326; }
 .sep { width: 1px; background: var(--line2); margin: 0 6px; }
@@ -119,13 +125,14 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .strip-name { flex-grow: 1; font-weight: 700; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: #5a5f67; }
 .dot.on { background: var(--acc2); }
-.strip-body { display: flex; justify-content: center; gap: 12px; flex: 1 1 auto; min-height: 200px; }
+.strip-body { display: flex; justify-content: center; gap: 12px; flex: 1 1 auto; min-height: 170px; }
 .meter { display: flex; gap: 3px; padding: 4px; border-radius: 4px; background: var(--well); }
 .meter .col { display: flex; flex-direction: column-reverse; gap: 2px; }
 .meter i { display: block; width: 7px; flex: 1 1 0; border-radius: 1px; background: var(--seg-off); }
 .meter i.low { background: var(--seg-low); }
 .meter i.mid { background: var(--seg-mid); }
 .meter i.hi { background: var(--seg-hi); }
+.meter i:not(.low, .mid, .hi), .hmeter i:not(.low, .mid, .hi), .eqgrid .ledcol i:not(.low, .mid) { box-shadow: inset 0 0 0 1px var(--edge); }
 .num {
   width: 84px; min-height: 30px; padding: 0 6px; border-radius: 6px; border: 1px solid transparent; background: transparent;
   color: var(--text); font-family: var(--num); font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: center; cursor: text;
@@ -152,11 +159,11 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 /* vertical faders: a rotated horizontal range is the most reliable form in WebKitGTK */
 .fwrap { position: relative; width: 44px; flex: none; }
 .fader { -webkit-appearance: none; appearance: none; position: absolute; width: 200px; height: 44px; left: -78px; top: 78px; transform: rotate(-90deg); background: transparent; margin: 0; cursor: pointer; }
-.fader::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: #08090a; box-shadow: inset 0 0 0 1px var(--line2); }
+.fader::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: #08090a; box-shadow: inset 0 0 0 1px var(--edge); }
 .fader::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 38px; margin-top: -16px; border-radius: 3px; border: 1px solid #555b63; background: linear-gradient(90deg, #2c3036 0 42%, var(--acc) 42% 58%, #2c3036 58%); }
 
 .hz { -webkit-appearance: none; appearance: none; width: 100%; height: 30px; background: transparent; margin: 0; cursor: pointer; }
-.hz::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--line2); }
+.hz::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--edge); }
 .hz::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; margin-top: -7px; border-radius: 50%; border: 3px solid var(--panel); background: var(--acc); }
 
 .switch { flex: none; width: 48px; height: 28px; border-radius: 14px; border: none; padding: 3px; display: flex; justify-content: flex-start; background: var(--line2); cursor: pointer; }
@@ -177,10 +184,13 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .chips button[aria-disabled="true"] { opacity: .45; cursor: default; }
 .chip-name { min-height: 34px; width: 130px; padding: 0 14px; border-radius: 17px; border: 1px solid var(--acc2); background: var(--panel2); color: var(--text); font: inherit; font-weight: 600; font-size: 13px; outline: none; }
 .chip-name[aria-invalid="true"] { border-color: var(--red); }
+.name-error { align-self: center; font-size: 12px; color: var(--red); }
 
-.bands-scroll { overflow-x: auto; }
-.eqgrid { display: flex; gap: 4px; min-width: 520px; margin-bottom: 4px; padding: 8px 12px; border-radius: 6px; background: var(--well); }
-.eqgrid .ledcol { flex: 1 1 0; grid-template-rows: repeat(var(--rows), 7px); gap: 3px; }
+/* when an error banner and wrapped preset chips leave too little height, the LED rows get thinner instead of the tab scrolling */
+#tab-sound > .card { min-height: 0; }
+.bands-scroll { overflow-x: auto; flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.eqgrid { flex: 0 1 auto; min-height: 0; display: flex; gap: 4px; min-width: 520px; margin-bottom: 4px; padding: 8px 12px; border-radius: 6px; background: var(--well); }
+.eqgrid .ledcol { flex: 1 1 0; grid-template-rows: repeat(var(--rows), minmax(2px, 7px)); gap: 3px; }
 .eqgrid .ledcol i { width: 100%; }
 .ledcol i.dim { opacity: 0.45; }
 /* ten equal cells so every band sits under the middle of its three LED columns */
@@ -191,7 +201,7 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .band .freq { color: var(--muted); }
 .bwrap { position: relative; width: 32px; height: 80px; }
 .bslider { -webkit-appearance: none; appearance: none; position: absolute; width: 80px; height: 32px; left: -24px; top: 24px; transform: rotate(-90deg); background: transparent; margin: 0; cursor: pointer; }
-.bslider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--line2); }
+.bslider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--edge); }
 .bslider::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 22px; margin-top: -9px; border-radius: 3px; border: none; background: var(--acc); }
 
 .meter-row { display: flex; align-items: center; gap: 12px; }
@@ -230,7 +240,9 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .checks .bad .mark { background: var(--red); color: #1a0705; }
 .checks code { display: block; margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: var(--well); font-family: var(--mono); font-size: 12px; user-select: all; }
 .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-.rule.inactive { opacity: 0.45; }
+/* resting, not disabled: dimmer text that still reads at 5:1, the controls keep working and look it */
+.rule.inactive .title { color: var(--muted); }
+.rule.inactive .hint { color: #85888e; }
 
 /* dialog windows (bug report) */
 .dialog-page .app { height: 100vh; }
@@ -248,7 +260,7 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .preview pre { margin: 8px 0 0; padding: 10px; max-height: 180px; overflow: auto; border-radius: 8px; background: var(--well); font: 11.5px/1.4 var(--mono); color: var(--muted); white-space: pre-wrap; }
 .status { margin: auto; max-width: 420px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .status svg { fill: none; stroke: #3da66a; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.status h2 { margin: 0; font-size: 18px; }
+.status h2 { margin: 0; font-size: 18px; outline: none; }
 .mail-addr { margin: 0; padding: 8px 14px; border-radius: 6px; background: var(--well); border: 1px solid var(--line2); font-weight: 600; }
 .bug-footer { display: flex; align-items: center; gap: 10px; padding: 12px 22px 16px; border-top: 1px solid var(--line); }
 
@@ -266,7 +278,7 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .cmd-row { display: flex; align-items: center; gap: 8px; }
 .cmd-row code { flex: 1 1 auto; margin: 0 !important; overflow-x: auto; white-space: nowrap; }
 .btn.primary:disabled { background: var(--line2); border-color: var(--line2); color: var(--muted); }
-.dialog.wide { max-width: 920px; overflow: hidden; gap: 14px; }
+.dialog.wide { max-width: 920px; gap: 14px; }
 .dialog-cols { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; align-items: start; }
 .dialog-side { display: flex; flex-direction: column; gap: 10px; }
 .dialog-side .field.wide { margin-top: 0; }
@@ -286,7 +298,7 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 #licenses { height: 380px; max-height: none; overflow-wrap: anywhere; }
 
 /* what's new, in the look of the store banner */
-.dialog.news { max-width: 720px; padding: 0; gap: 0; overflow: hidden; }
+.dialog.news { max-width: 720px; padding: 0; gap: 0; }
 .news-head { display: flex; align-items: center; gap: 22px; padding: 16px 24px; background: var(--well); border-bottom: 1px solid var(--line); }
 .news-brand { flex: 1; display: flex; align-items: center; gap: 16px; min-width: 0; }
 #news-logo svg { display: block; width: 64px; height: 64px; }
@@ -303,7 +315,8 @@ main { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 20px; disp
 .news-item { display: grid; grid-template-columns: 300px 1fr; gap: 18px; align-items: center; padding: 10px 12px; border-radius: 10px; background: var(--panel2); }
 .news-text { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .news-text h2 { margin: 0; font-size: 17px; }
-.mic-state { padding: 0; border: none; background: none; color: inherit; font-size: inherit; }
+/* 24 px high so the text-sized button is still easy to hit */
+.mic-state { min-height: 24px; padding: 0; border: none; background: none; color: inherit; font-size: inherit; }
 .mic-state:disabled { cursor: default; }
 .mic-state:not(:disabled) { color: var(--red); cursor: pointer; text-decoration: underline dotted; }
 .news-art { display: flex; align-items: center; justify-content: center; padding: 6px; border-radius: 8px; background: var(--win); overflow: hidden; }

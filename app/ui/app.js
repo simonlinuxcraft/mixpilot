@@ -114,8 +114,31 @@ const painters = [];
 const paintAll = () => painters.forEach((p) => p());
 
 function showError(e) {
-  $('error').textContent = t(String(e));
-  $('error').hidden = false;
+  const raw = String(e);
+  const box = $('error');
+  // a raw message from pactl or the system gets a translated frame and is marked as English
+  const known = Object.hasOwn(EN, raw);
+  const s = known ? t(raw) : `${t('Fehler:')} ${raw}`;
+  // rewriting the same text would make screen readers repeat the alert
+  if (box.hidden || box.textContent !== s) {
+    const part = el('span', null, raw);
+    part.lang = 'en';
+    box.replaceChildren(...(known ? [s] : [`${t('Fehler:')} `, part]));
+  }
+  box.hidden = false;
+}
+
+// A dialog takes the focus and makes the window behind it inert; closing gives the focus back.
+function openDialog(o) {
+  if (o.hidden) o.from = document.activeElement;
+  o.hidden = false;
+  document.querySelector('.app').inert = true;
+  o.firstElementChild.focus();
+}
+function closeDialog(o) {
+  o.hidden = true;
+  document.querySelector('.app').inert = !!document.querySelector('.overlay:not([hidden])');
+  o.from?.focus();
 }
 
 // Faders follow the core's cubic taper: gain = (v/100)^3
@@ -255,16 +278,25 @@ function numField(input, { get, set, min, max, step = 1, show, toValue = (n) => 
   return input;
 }
 
-function bindRange(id, get, set) {
+// what a screen reader says for a slider, like the readout next to it; written only when it changes
+function valueText(r, s) {
+  if (r.getAttribute('aria-valuetext') !== s) r.setAttribute('aria-valuetext', s);
+}
+
+function bindRange(id, get, set, text) {
   const r = $(id);
   r.addEventListener('input', change(() => set(Number(r.value))));
-  painters.push(() => { if (document.activeElement !== r) r.value = get(); });
+  painters.push(() => {
+    if (document.activeElement !== r) r.value = get();
+    if (text) valueText(r, text());
+  });
 }
 
 // Mouse wheel over a control changes it (up = more, Shift = 10 steps); the page itself never scrolls.
 document.addEventListener('wheel', (e) => {
   const t = e.target.closest('input');
-  if (!t) return;
+  // Ctrl+wheel zooms the page
+  if (!t || e.ctrlKey) return;
   if (t.type === 'range') {
     e.preventDefault();
     const step = Number(t.step || 1) * (e.shiftKey ? 10 : 1);
@@ -312,7 +344,7 @@ function strip(id, label, master) {
   const head = el('div', 'strip-head');
   head.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[id]}"></path></svg>`;
   const dot = el('span', 'dot');
-  head.append(el('span', 'strip-name', label), dot);
+  head.append(el('h2', 'strip-name', label), dot);
   const body = el('div', 'strip-body');
   const meter = el('div', 'meter');
   const cl = el('div', 'col');
@@ -337,12 +369,12 @@ function strip(id, label, master) {
   } else {
     fader.addEventListener('input', change(() => (cfg[id].volume = Number(fader.value))));
   }
-  let mute = null;
+  const mute = el('button', 'mute', t('STUMM'));
+  mute.setAttribute('aria-label', t('{0} stumm', label));
   let chip = null;
   const apps = el('div', 'appchips');
   if (master) {
     const btns = el('div', 'btns');
-    mute = el('button', 'mute', t('STUMM'));
     mute.addEventListener('click', async () => {
       masterDev.mute = !masterDev.mute;
       masterTouched = Date.now();
@@ -353,7 +385,6 @@ function strip(id, label, master) {
     root.append(btns, el('p', 'hint', t('Systemlautstärke deines Ausgabegeräts')));
   } else {
     const btns = el('div', 'btns');
-    mute = el('button', 'mute', t('STUMM'));
     mute.addEventListener('click', change(() => (cfg[id].mute = !cfg[id].mute)));
     chip = el('button', 'eqchip');
     chip.setAttribute('aria-haspopup', 'menu');
@@ -369,8 +400,10 @@ function strip(id, label, master) {
   painters.push(() => {
     if (document.activeElement !== fader) fader.value = get();
     const muted = master ? masterDev.mute : cfg[id].mute;
+    const level = master ? (masterDev.known ? `${masterDev.volume} %` : t('kein Gerät')) : fdb(cfg[id].volume);
+    valueText(fader, muted ? `${level}, ${t('stumm')}` : level);
 
-    if (mute) mute.setAttribute('aria-pressed', String(muted));
+    mute.setAttribute('aria-pressed', String(muted));
     if (chip) {
       const name = presetLabel(chPreset(id));
       chip.replaceChildren(el('b', null, 'EQ'), el('span', null, name));
@@ -403,7 +436,9 @@ function strip(id, label, master) {
 
 function paintCardsMixer() {
   const c = cfg.chatmix;
-  $('cm-text').textContent = `Game ${c > 0 ? 100 - c : 100} %   Chat ${c < 0 ? 100 + c : 100} %`;
+  const [game, chat] = [c > 0 ? 100 - c : 100, c < 0 ? 100 + c : 100];
+  $('cm-text').textContent = `Game ${game} %   Chat ${chat} %`;
+  valueText($('chatmix'), `Game ${game} %, Chat ${chat} %`);
 }
 
 // ---------- sound ----------
@@ -429,6 +464,10 @@ function nameField() {
   Object.assign(input, { type: 'text', maxLength: 20, spellcheck: false, placeholder: t('Name') });
   input.dataset.k = 'name';
   input.setAttribute('aria-label', t('Name für das neue Preset'));
+  // stays in place while empty, so the alert is read out when the text arrives
+  const msg = el('span', 'name-error');
+  msg.id = 'name-error';
+  msg.setAttribute('role', 'alert');
   const done = () => { naming = false; paintAll(); };
   const commit = () => {
     const n = input.value.trim();
@@ -436,7 +475,8 @@ function nameField() {
     if (!n) return done();
     if (reservedName(n)) {
       input.setAttribute('aria-invalid', 'true');
-      input.title = t('So heißt schon ein eingebautes Preset');
+      input.setAttribute('aria-describedby', msg.id);
+      msg.textContent = t('So heißt schon ein eingebautes Preset');
       return;
     }
     cfg.eq_presets[n] = curveOf(selP).slice();
@@ -450,9 +490,13 @@ function nameField() {
     if (e.key === 'Enter') commit();
     else if (e.key === 'Escape') done();
   });
-  input.addEventListener('input', () => input.removeAttribute('aria-invalid'));
+  input.addEventListener('input', () => {
+    input.removeAttribute('aria-invalid');
+    input.removeAttribute('aria-describedby');
+    msg.textContent = '';
+  });
   input.addEventListener('blur', () => { if (input.getAttribute('aria-invalid')) done(); else commit(); });
-  return input;
+  return [input, msg];
 }
 
 function presetChips(box) {
@@ -487,8 +531,8 @@ function presetChips(box) {
       }), t('Preset {0} löschen', selP));
     }
     if (naming) {
-      const input = nameField();
-      box.append(input);
+      const [input, msg] = nameField();
+      box.append(input, msg);
       input.focus();
     } else {
       const full = own.length >= EQ_OWN_MAX;
@@ -496,6 +540,12 @@ function presetChips(box) {
       if (full) {
         b.setAttribute('aria-disabled', 'true');
         b.title = t('Höchstens {0} eigene Presets, lösch zuerst eins', EQ_OWN_MAX);
+        // hidden text still serves as the description for screen readers
+        const why = el('span', null, b.title);
+        why.id = 'new-full';
+        why.hidden = true;
+        b.setAttribute('aria-describedby', why.id);
+        box.append(why);
       }
     }
     // after naming, the focus lands on the preset that is now selected
@@ -563,7 +613,7 @@ function buildSound() {
     if (on) cfg.bass = cfg.bass_last || 50;
     else { cfg.bass_last = cfg.bass; cfg.bass = 0; }
   });
-  bindRange('bass', () => cfg.bass, (v) => (cfg.bass = v));
+  bindRange('bass', () => cfg.bass, (v) => (cfg.bass = v), () => `${cfg.bass} %`);
   numField($('bass-value'), { label: t('Bass Boost in Prozent'), get: () => cfg.bass, set: (v) => (cfg.bass = Math.round(v)), min: 0, max: 100, show: () => `${cfg.bass} %` });
   painters.push(() => ($('bass-text').textContent = cfg.bass ? t('+{0} dB unter 100 Hz, mit Schutz gegen Übersteuern.', (cfg.bass * 0.12).toFixed(1)) : t('Aus.')));
   buttonGroup('autovol', AUTOVOL, () => cfg.auto_volume, (v) => (cfg.auto_volume = v));
@@ -603,6 +653,7 @@ function buildSound() {
     const g = curveOf(selP);
     bandEls.forEach((s, i) => {
       if (document.activeElement !== s) s.value = g[i];
+      valueText(s, `${g[i] > 0 ? '+' : ''}${g[i]} dB`);
     });
     paintGrid(g);
   });
@@ -627,16 +678,31 @@ function eqLeds(parent) {
 }
 
 // ---------- microphone ----------
+// The level in words for screen readers, same zones as the colours: yellow from -12 dB, red from -3 dB.
+function levelMeter(meter) {
+  const set = makeSegments(meter, 40);
+  let shown = '';
+  return (f) => {
+    set(f);
+    const db = f * 60 - 60;
+    const text = f <= 0 ? t('kein Signal') : db < -12 ? t('zu leise') : db < -3 ? t('gut') : t('zu laut');
+    const now = String(Math.round(f * 10) * 10);
+    if (text + now === shown) return;
+    shown = text + now;
+    meter.setAttribute('aria-valuenow', now);
+    meter.setAttribute('aria-valuetext', text);
+  };
+}
 let setMicMeter = () => {};
 let setMicInMeter = () => {};
 function buildMic() {
-  setMicMeter = makeSegments($('mic-meter'), 40);
-  setMicInMeter = makeSegments($('mic-in-meter'), 40);
+  setMicMeter = levelMeter($('mic-meter'));
+  setMicInMeter = levelMeter($('mic-in-meter'));
   painters.push(() => ($('voice-text').textContent = VOICE_TEXT[cfg.mic.voice] || ''));
   buttonGroup('noise', NOISE, () => cfg.mic.noise, (v) => (cfg.mic.noise = v));
   buttonGroup('deess', DEESS, () => cfg.mic.deess, (v) => (cfg.mic.deess = v));
   buttonGroup('voice', VOICE, () => cfg.mic.voice, (v) => (cfg.mic.voice = v));
-  bindRange('mic-gain', () => cfg.mic.gain, (v) => (cfg.mic.gain = v));
+  bindRange('mic-gain', () => cfg.mic.gain, (v) => (cfg.mic.gain = v), () => `${cfg.mic.gain} %`);
   numField($('gain-text'), { label: t('Mikrofon-Verstärkung in Prozent'), get: () => cfg.mic.gain, set: (v) => (cfg.mic.gain = Math.round(v)), min: 0, max: 200, show: () => `${cfg.mic.gain} %` });
   bindSwitch('agc', () => cfg.mic.agc, (v) => (cfg.mic.agc = v));
   bindSwitch('gate', () => cfg.mic.gate, (v) => (cfg.mic.gate = v));
@@ -689,7 +755,7 @@ function buildMic() {
   const test = $('mic-test');
   test.addEventListener('click', async () => {
     // a muted microphone would record five seconds of silence
-    if (cfg.mic.mute) return showError(t('Das Mikrofon ist stumm. Klick oben auf "stumm", um es wieder einzuschalten.'));
+    if (cfg.mic.mute) return showError('Das Mikrofon ist stumm. Klick oben auf "stumm", um es wieder einzuschalten.');
     test.disabled = true;
     let left = 5;
     test.textContent = t('Aufnahme {0} s', left);
@@ -858,15 +924,14 @@ function paintApps(force) {
 
 // device events carry the node name; show what the device pickers show
 function eventText(e) {
-  const args = (e.args || []).map((a) => a);
+  const args = [...(e.args || [])];
   if (e.key === 'output' || e.key === 'input') {
     const d = [...devices.sinks, ...devices.sources].find((x) => x.name === args[0]);
     args[0] = !args[0] ? t('System-Standard') : d ? d.description : args[0];
   }
   // the core names channels in English, Music is the one with a German name
   if (e.key === 'sorted' || e.key === 'moved') args[1] = CHANNELS.find(([id]) => id === String(args[1]).toLowerCase())?.[1] ?? args[1];
-  // e.text: a core from before keyed events
-  return e.text ?? t(EVENTS[e.key] || e.key || '', ...args);
+  return t(EVENTS[e.key] || e.key || '', ...args);
 }
 
 let eventsKey = '';
@@ -925,7 +990,9 @@ async function tick() {
 
 async function pollCore() {
   const on = await invoke('core_status').catch(() => false);
-  $('core-status').textContent = on ? t('Audio-Kern läuft') : t('Audio-Kern gestoppt');
+  const s = on ? t('Audio-Kern läuft') : t('Audio-Kern gestoppt');
+  // live region: only a real change is announced
+  if ($('core-status').textContent !== s) $('core-status').textContent = s;
   $('core-status').className = on ? 'core-status' : 'core-status off';
   $('start-core').hidden = on;
 }
@@ -1030,48 +1097,6 @@ const NEWS = [
       },
     ],
   },
-  {
-    version: '0.0.3',
-    title: 'Musik-Kanal und EQ pro Kanal',
-    items: [
-      {
-        art: 'mixer',
-        tab: 'mixer',
-        title: 'Musik-Kanal',
-        text: 'Musik hat einen eigenen Kanal neben Media, mit eigener Lautstärke und eigenem Klang. Spotify und andere Player landen automatisch dort.',
-      },
-      {
-        art: 'eq',
-        tab: 'sound',
-        title: 'Ein Preset pro Kanal',
-        text: 'Jeder Kanal hat seinen eigenen Equalizer. Im Mixer wählst du über den EQ-Knopf ein Preset, im Sound-Tab passt du Presets an oder legst neue an.',
-      },
-    ],
-  },
-  {
-    version: '0.0.2',
-    title: 'Push-to-Mute und Presets',
-    items: [
-      {
-        art: 'mute',
-        tab: 'mic',
-        title: 'Push-to-Mute',
-        text: 'Eine Taste schaltet dein Mikrofon stumm und wieder an, auch mitten im Spiel. Einschalten im Mikrofon-Tab, die Taste wählst du im Dialog deines Desktops.',
-      },
-      {
-        art: 'eq',
-        tab: 'sound',
-        title: 'Eigene EQ-Presets',
-        text: 'Stell den Equalizer nach deinem Geschmack ein und speichere die Kurve unter eigenem Namen. Bis zu vier eigene Presets, ein Klick holt sie zurück.',
-      },
-      {
-        art: 'mixer',
-        tab: 'mixer',
-        title: 'Neuer Look',
-        text: 'Der Equalizer zeigt seine Kurve als LED-Anzeige, und der Mixer nutzt das ganze Fenster. Zieh es größer, die Fader wachsen mit.',
-      },
-    ],
-  },
 ];
 
 // LED columns like the level meters. Each art returns a step function the dialog calls every 70 ms.
@@ -1116,35 +1141,6 @@ function mini(box, scale, width, cls = 'card') {
 // a transform does not shrink the layout box, so the stage gets its height once the dialog is shown
 function fitMinis() {
   document.querySelectorAll('.mini-ui').forEach((s) => (s.style.height = `${s.firstElementChild.offsetHeight * s.dataset.scale}px`));
-}
-
-function eqArt(box) {
-  // 288 px: the art cell is 300 px wide with 6 px padding
-  const card = mini(box, 0.48, 600);
-  const name = el('span', 'muted');
-  const title = el('span', 'title', 'Presets ');
-  title.append(name);
-  const chips = el('div', 'chips');
-  const shapes = [['flat', EQ_BUILTIN.flat], ['bass', EQ_BUILTIN.bass], ['voice', EQ_BUILTIN.voice], [t('Mein Kopfhörer'), [6, 5, 3, 0, -2, -2, 1, 4, 3, 1]]];
-  const btns = shapes.map(([n]) => chips.appendChild(el('button', null, presetLabel(n))));
-  const head = el('div', 'card-head wrap');
-  head.append(title, chips);
-  const grid = el('div', 'eqgrid');
-  card.append(head, grid);
-  const paint = eqLeds(grid);
-  const cur = Array(10).fill(0);
-  let n = -1;
-  let tick = 0;
-  return () => {
-    if (tick++ % 26 === 0) {
-      n = (n + 1) % shapes.length;
-      name.textContent = presetLabel(shapes[n][0]);
-      btns.forEach((b, i) => b.setAttribute('aria-pressed', String(i === n)));
-    }
-    // 1 dB per step, like dragging the band sliders
-    shapes[n][1].forEach((v, i) => (cur[i] += Math.sign(v - cur[i])));
-    paint(cur);
-  };
 }
 
 // the push-to-mute part of the microphone tab: each key press flips aktiv and stumm
@@ -1283,7 +1279,7 @@ function resetArt(box) {
   return () => {};
 }
 
-const NEWS_ART = { eq: eqArt, mute: muteArt, mixer: mixerArt, monitor: monitorArt, reset: resetArt };
+const NEWS_ART = { mute: muteArt, mixer: mixerArt, monitor: monitorArt, reset: resetArt };
 let newsTimer = null;
 
 function openNews(entry) {
@@ -1305,7 +1301,9 @@ function openNews(entry) {
       const go = el('button', 'btn small', t('Ansehen'));
       go.addEventListener('click', () => {
         closeNews();
-        document.querySelector(`.tab[data-tab="${it.tab}"]`)?.click();
+        const b = document.querySelector(`.tab[data-tab="${it.tab}"]`);
+        b?.click();
+        b?.focus();
       });
       text.append(go);
     }
@@ -1316,14 +1314,13 @@ function openNews(entry) {
   step();
   clearInterval(newsTimer);
   if (!matchMedia('(prefers-reduced-motion: reduce)').matches) newsTimer = setInterval(step, 70);
-  $('news').hidden = false;
+  openDialog($('news'));
   fitMinis();
-  $('news').firstElementChild.focus();
 }
 
 function closeNews() {
   clearInterval(newsTimer);
-  $('news').hidden = true;
+  closeDialog($('news'));
 }
 
 // The about dialog shows the notes of this version, or the newest ones in a development build.
@@ -1359,17 +1356,17 @@ function bindChrome() {
   $('win-max').addEventListener('click', () => win?.toggleMaximize());
   $('win-close').addEventListener('click', () => win?.close());
   const info = $('support-info');
-  $('support').addEventListener('click', () => { info.hidden = false; info.firstElementChild.focus(); });
-  $('support-cancel').addEventListener('click', () => { info.hidden = true; });
-  info.addEventListener('click', (e) => { if (e.target === info) info.hidden = true; });
-  info.addEventListener('keydown', (e) => { if (e.key === 'Escape') info.hidden = true; });
+  $('support').addEventListener('click', () => openDialog(info));
+  $('support-cancel').addEventListener('click', () => closeDialog(info));
+  info.addEventListener('click', (e) => { if (e.target === info) closeDialog(info); });
+  info.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDialog(info); });
   $('support-go').addEventListener('click', () => {
-    info.hidden = true;
+    closeDialog(info);
     invoke('open_support').catch(showError);
   });
   const reset = $('reset-info');
   const closeReset = async () => {
-    reset.hidden = true;
+    closeDialog(reset);
     // ask first: a pollConfig during the wait still sees the same note and does not reopen it
     const version = cfg.seen_version ?? (await invoke('app_info').catch(() => null))?.version;
     // null tells set_config the note was shown; the file had been in use, so setup is not needed
@@ -1382,7 +1379,7 @@ function bindChrome() {
   reset.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeReset(); });
   $('bug').addEventListener('click', () => invoke('open_bug_report').catch(showError));
   const about = $('about');
-  const closeAbout = () => (about.hidden = true);
+  const closeAbout = () => closeDialog(about);
   $('about-btn').addEventListener('click', async () => {
     const a = await invoke('app_info').catch(() => null);
     if (a) {
@@ -1390,8 +1387,7 @@ function bindChrome() {
       $('about-contact').textContent = t('Kontakt: {0}', a.email);
     }
     $('licenses-box').open = false;
-    about.hidden = false;
-    about.firstElementChild.focus();
+    openDialog(about);
   });
   $('about-close').addEventListener('click', closeAbout);
   about.addEventListener('click', (e) => { if (e.target === about) closeAbout(); });
@@ -1439,10 +1435,21 @@ async function init() {
     b.addEventListener('click', () => {
       tab = b.dataset.tab;
       editFor = null;
-      document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-pressed', String(t === b)));
+      document.querySelectorAll('.tab').forEach((t) => { t.setAttribute('aria-selected', String(t === b)); t.tabIndex = t === b ? 0 : -1; });
       document.querySelectorAll('.page').forEach((p) => (p.hidden = p.id !== `tab-${tab}`));
     });
   }
+  // arrow keys move between the tabs, Tab leaves the row
+  document.querySelector('.tablist').addEventListener('keydown', (e) => {
+    const tabs = [...document.querySelectorAll('.tab')];
+    const i = tabs.indexOf(document.activeElement);
+    const j = { ArrowLeft: i - 1, ArrowRight: i + 1, Home: 0, End: tabs.length - 1 }[e.key];
+    if (j === undefined) return;
+    e.preventDefault();
+    const b = tabs[(j + tabs.length) % tabs.length];
+    b.click();
+    b.focus();
+  });
   document.addEventListener('click', (e) => { if (eqMenu && !eqMenu.box.contains(e.target)) closeEqMenu(); });
   addEventListener('resize', () => closeEqMenu());
   paintAll();
@@ -1459,7 +1466,7 @@ async function init() {
 // First start (or a snap without its permissions yet): the setup dialog works without a config;
 // "Fertig" waits for the core, which creates the settings.
 async function openSetup() {
-  $('setup').hidden = false;
+  openDialog($('setup'));
   await refreshDevices();
   await runChecks();
   $('recheck').addEventListener('click', async () => {
@@ -1479,7 +1486,7 @@ async function openSetup() {
     // a fresh install has nothing to catch up on
     cfg.seen_version = (await invoke('app_info').catch(() => null))?.version;
     save();
-    $('setup').hidden = true;
+    closeDialog($('setup'));
     await init();
     $('autostart').setAttribute('aria-checked', String(await invoke('get_autostart')));
   });
@@ -1504,8 +1511,7 @@ async function main() {
 function showReset(path) {
   cfg.config_reset = path;
   $('reset-file').textContent = path;
-  $('reset-info').hidden = false;
-  $('reset-info').firstElementChild.focus();
+  openDialog($('reset-info'));
 }
 
 main().catch(showError);
