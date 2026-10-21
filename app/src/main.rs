@@ -103,32 +103,10 @@ fn replace_stale_core() {
     stop_core();
 }
 
-/// True if the process was started with the given XDG_RUNTIME_DIR, i.e. belongs to that session.
-fn same_runtime(pid: i32, dir: &std::path::Path) -> bool {
-    let Ok(env) = std::fs::read(format!("/proc/{pid}/environ")) else { return false };
-    let want = format!("XDG_RUNTIME_DIR={}", dir.display());
-    env.split(|b| *b == 0).any(|kv| kv == want.as_bytes())
-}
-
-/// Cores of this user that belong to this session. A core from another session (a test instance,
-/// a second login) is never touched.
-fn core_pids() -> Vec<i32> {
-    let dir = runtime_dir();
+/// The core of this session: every published core writes its PID into this session's lock.
+fn core_pid() -> Option<i32> {
     let is_core = |pid: &i32| std::fs::read_to_string(format!("/proc/{pid}/comm")).is_ok_and(|c| c.trim() == "mixpilot-core");
-    // A current core writes its PID into this session's lock. The pgrep route stays for older cores,
-    // it fails inside the snap, which may not read /proc/<pid>/environ.
-    let locked = std::fs::read_to_string(dir.join("mixpilot.lock")).ok().and_then(|s| s.trim().parse().ok()).filter(|p| core_running() && is_core(p));
-    let uid = unsafe { libc::getuid() }.to_string();
-    let out = Command::new("pgrep").args(["-u", &uid, "-x", "mixpilot-core"]).output().map(|o| o.stdout).unwrap_or_default();
-    let mut pids: Vec<i32> = String::from_utf8_lossy(&out)
-        .lines()
-        .filter_map(|l| l.trim().parse().ok())
-        .filter(|&pid| same_runtime(pid, &dir))
-        .chain(locked)
-        .collect();
-    pids.sort_unstable();
-    pids.dedup();
-    pids
+    std::fs::read_to_string(runtime_dir().join("mixpilot.lock")).ok().and_then(|s| s.trim().parse().ok()).filter(|p| core_running() && is_core(p))
 }
 
 // ensure_core runs off the main thread and the watchdog has its own; two starts at once would race
@@ -440,8 +418,6 @@ fn get_autostart() -> bool {
 /// Starts Mixpilot at login in the tray, without a window; the app then starts the audio core.
 #[tauri::command]
 fn set_autostart(on: bool) -> Result<(), String> {
-    // earlier builds started only the core from here
-    let _ = std::fs::remove_file(autostart_dir().join("mixpilot-core.desktop"));
     let file = autostart_file();
     if !on {
         return match std::fs::remove_file(&file) {
@@ -640,14 +616,8 @@ fn open_support() {
 }
 
 const BUG_EMAIL: &str = "simonlinuxcraft@pm.me";
-/// Set at build time only, never in the source: a proxy URL (key stays on the server) or a Web3Forms key.
+/// The proxy URL, set at build time only (the Web3Forms key stays on the server); without it, mail.
 const BUG_PROXY: Option<&str> = option_env!("MIXPILOT_BUG_URL");
-const BUG_KEY: Option<&str> = option_env!("MIXPILOT_WEB3FORMS_KEY");
-
-fn first_line_with(cmd: &str, args: &[&str], needle: &str) -> Option<String> {
-    let out = output_within(Command::new(cmd).args(args).env("LC_ALL", "C"), CMD_LIMIT).ok()?;
-    String::from_utf8_lossy(&out.stdout).lines().find(|l| l.contains(needle)).map(|l| l.trim().to_string())
-}
 
 fn package() -> &'static str {
     if std::env::var_os("SNAP").is_some() {
@@ -686,7 +656,10 @@ fn system_info() -> String {
     };
     let env = |k: &str| std::env::var(k).unwrap_or_else(|_| "-".into());
     let package = package();
-    let server = first_line_with("pactl", &["info"], "Server Name").unwrap_or_else(|| "pactl info: n/a".into());
+    let server = output_within(Command::new("pactl").arg("info").env("LC_ALL", "C"), CMD_LIMIT)
+        .ok()
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).lines().find(|l| l.contains("Server Name")).map(|l| l.trim().to_string()))
+        .unwrap_or_else(|| "pactl info: n/a".into());
     let cfg = get_config().unwrap_or(Value::Null);
     let pick = |p: &str| cfg.pointer(p).map(|v| v.to_string()).unwrap_or_else(|| "-".into());
     format!(
@@ -724,7 +697,7 @@ struct BugInfo {
 // system_info asks pactl, which must never block the main thread (window and tray)
 #[tauri::command]
 async fn bug_info() -> Result<BugInfo, String> {
-    blocking(|| BugInfo { can_send: BUG_PROXY.is_some() || BUG_KEY.is_some(), email: BUG_EMAIL.into(), info: system_info(), log: core_log_tail(60) }).await
+    blocking(|| BugInfo { can_send: BUG_PROXY.is_some(), email: BUG_EMAIL.into(), info: system_info(), log: core_log_tail(60) }).await
 }
 
 #[derive(serde::Deserialize)]
@@ -754,7 +727,7 @@ fn report_text(r: &BugReport) -> String {
     t
 }
 
-/// Sends through the proxy or Web3Forms with curl (present on every desktop, staged in the snap).
+/// Sends through the proxy with curl (present on every desktop, staged in the snap).
 #[tauri::command]
 async fn send_bug_report(report: BugReport) -> Result<(), String> {
     blocking(move || post_bug_report(&report)).await?
@@ -764,19 +737,13 @@ fn post_bug_report(report: &BugReport) -> Result<(), String> {
     if report.description.trim().len() < 5 {
         return Err("Bitte beschreib kurz, was passiert ist.".into());
     }
-    let url = BUG_PROXY.unwrap_or("https://api.web3forms.com/submit");
-    if BUG_PROXY.is_none() && BUG_KEY.is_none() {
-        return Err("no-endpoint".into());
-    }
+    let Some(url) = BUG_PROXY else { return Err("no-endpoint".into()) };
     let mut payload = serde_json::json!({
         "subject": format!("Mixpilot Bug Report v{}", env!("CARGO_PKG_VERSION")),
         "from_name": "Mixpilot App",
         "message": report_text(report),
         "botcheck": "",
     });
-    if let (None, Some(key)) = (BUG_PROXY, BUG_KEY) {
-        payload["access_key"] = Value::String(key.into());
-    }
     if !report.email.trim().is_empty() {
         payload["email"] = Value::String(report.email.trim().into());
     }
@@ -900,14 +867,9 @@ fn listen(app: AppHandle) {
 /// Stops the audio core: all apps fall back to their normal device.
 /// SIGKILL after 2 s: a core hung in its main loop would otherwise keep its nodes and swallow the audio.
 fn stop_core() {
-    let pids = core_pids();
-    if pids.is_empty() {
-        return;
-    }
+    let Some(pid) = core_pid() else { return };
     for sig in [libc::SIGTERM, libc::SIGKILL] {
-        for &pid in &pids {
-            unsafe { libc::kill(pid, sig) };
-        }
+        unsafe { libc::kill(pid, sig) };
         for _ in 0..40 {
             if !core_running() {
                 return;
@@ -1115,10 +1077,6 @@ fn main() {
             listen(handle.clone());
             let restore = get_config().ok().and_then(|c| c["mic_hotkey"].as_bool()).unwrap_or(false);
             hotkey::start(restore, toggle_mic_mute);
-            // an older autostart entry that only started the core is replaced by the tray app
-            if autostart_dir().join("mixpilot-core.desktop").is_file() {
-                let _ = set_autostart(true);
-            }
             if !background {
                 show_window(&handle);
             }
@@ -1140,18 +1098,6 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn only_processes_of_the_same_session_match() {
-        let mut child = Command::new("sleep").arg("5").env("XDG_RUNTIME_DIR", "/tmp/mixpilot-session-a").spawn().unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        let pid = child.id() as i32;
-        let a = same_runtime(pid, std::path::Path::new("/tmp/mixpilot-session-a"));
-        let b = same_runtime(pid, std::path::Path::new("/run/user/1000"));
-        let _ = child.kill();
-        let _ = child.wait();
-        assert!(a && !b);
-    }
 
     #[test]
     fn config_path_respects_xdg() {
