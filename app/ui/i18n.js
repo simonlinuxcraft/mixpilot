@@ -178,6 +178,7 @@ const EN = {
   'Zuordnung vergessen': 'Forget assignment',
   'Zuordnung für {0} vergessen': 'Forget assignment for {0}',
   // devices and errors
+  'Fehler:': 'Error:',
   'System-Standard': 'System default',
   'System-Standard ({0})': 'System default ({0})',
   '{0} (nicht verbunden)': '{0} (not connected)',

@@ -114,10 +114,18 @@ const painters = [];
 const paintAll = () => painters.forEach((p) => p());
 
 function showError(e) {
-  const s = t(String(e));
+  const raw = String(e);
+  const box = $('error');
+  // a raw message from pactl or the system gets a translated frame and is marked as English
+  const known = Object.hasOwn(EN, raw);
+  const s = known ? t(raw) : `${t('Fehler:')} ${raw}`;
   // rewriting the same text would make screen readers repeat the alert
-  if ($('error').hidden || $('error').textContent !== s) $('error').textContent = s;
-  $('error').hidden = false;
+  if (box.hidden || box.textContent !== s) {
+    const part = el('span', null, raw);
+    part.lang = 'en';
+    box.replaceChildren(...(known ? [s] : [`${t('Fehler:')} `, part]));
+  }
+  box.hidden = false;
 }
 
 // A dialog takes the focus and makes the window behind it inert; closing gives the focus back.
@@ -723,7 +731,7 @@ function buildMic() {
   const test = $('mic-test');
   test.addEventListener('click', async () => {
     // a muted microphone would record five seconds of silence
-    if (cfg.mic.mute) return showError(t('Das Mikrofon ist stumm. Klick oben auf "stumm", um es wieder einzuschalten.'));
+    if (cfg.mic.mute) return showError('Das Mikrofon ist stumm. Klick oben auf "stumm", um es wieder einzuschalten.');
     test.disabled = true;
     let left = 5;
     test.textContent = t('Aufnahme {0} s', left);
