@@ -3,6 +3,7 @@
 ## 0.0.6 - Easier for everyone
 
 - Keyboard and screen readers: the tabs switch with the arrow keys, dialogs take the focus and give it back, every mute button names its channel, sliders and the microphone levels read out their values in words, and errors and the audio core status are announced. Ctrl+Plus and Ctrl+Minus zoom both windows, the content scrolls only when zoomed in. Slider tracks, unlit meter segments and the rules dimmed while Autopilot is off have more contrast
+- A built-in Music preset: full deep bass without boom, a little less box around 1 kHz and some air on top. The Music channel starts with it, and an own preset called Musik or Music becomes the built-in one, its curve kept as a tuning that Reset takes back
 - Push-to-mute connects again by itself when the desktop's shortcut service is not ready yet at login or restarts later, and only the desktop itself can trigger the key
 - No more gaps in the channels and when hearing yourself while PipeWire runs with a quantum of 4096 or 8192
 - A hung audio core is replaced even while the window is closed

@@ -23,12 +23,14 @@ pub const CHANNELS: [ChannelDef; 5] = [
 ];
 
 /// Built-in EQ presets, 10 bands in dB at dsp::EQ_FREQS. app.js shows the same table as EQ_BUILTIN.
-pub const EQ_BUILTIN: [(&str, [f32; 10]); 5] = [
+pub const EQ_BUILTIN: [(&str, [f32; 10]); 6] = [
     ("flat", [0.0; 10]),
     ("bass", [6.0, 5.0, 3.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
     ("voice", [-3.0, -2.0, -1.0, 0.0, 2.0, 3.0, 3.0, 2.0, 0.0, -1.0]),
     ("gaming", [3.0, 4.0, 2.0, 0.0, -1.0, 0.0, 1.0, 3.0, 2.0, 1.0]),
     ("clear", [0.0, 0.0, -1.0, -1.0, 0.0, 1.0, 2.0, 3.0, 3.0, 2.0]),
+    // full deep bass without boom at 250 Hz, a little less box around 1 kHz, air from 7 kHz
+    ("music", [4.0, 4.0, 2.0, 0.0, -1.0, -1.0, 0.0, 1.0, 2.0, 2.0]),
 ];
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -147,7 +149,7 @@ impl Default for Config {
             game: Channel { eq: "gaming".into(), ..Channel::default() },
             chat: Channel { eq: "voice".into(), ..Channel::default() },
             media: Channel::default(),
-            music: Channel::default(),
+            music: Channel { eq: "music".into(), ..Channel::default() },
             aux: Channel::default(),
             chatmix: 0.0,
             bass: 0.0,
@@ -263,7 +265,7 @@ fn migrate(v: &mut serde_json::Value) -> bool {
     if v.get("music").is_some() {
         return false;
     }
-    v["music"] = serde_json::to_value(Channel::default()).unwrap_or_default();
+    v["music"] = serde_json::to_value(Config::default().music).unwrap_or_default();
     // get_mut, not v["rules"]: indexing would insert a null and break the config
     let Some(rules) = v.get_mut("rules").and_then(|r| r.as_array_mut()) else { return true };
     let builtin = |r: &serde_json::Value| r["user"] != true;
@@ -408,6 +410,8 @@ mod tests {
         assert_eq!(c.curve("Mine")[9], 10.0);
         assert_eq!(c.curve("Short"), [0.0; 10]);
         assert_eq!(c.curve("gone"), [0.0; 10]);
+        assert_eq!(Config::default().music.eq, "music");
+        assert_eq!(c.curve("music"), EQ_BUILTIN[5].1);
     }
 
     #[test]

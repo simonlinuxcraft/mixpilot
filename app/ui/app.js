@@ -24,8 +24,9 @@ const EQ_BUILTIN = {
   voice: [-3, -2, -1, 0, 2, 3, 3, 2, 0, -1],
   gaming: [3, 4, 2, 0, -1, 0, 1, 3, 2, 1],
   clear: [0, 0, -1, -1, 0, 1, 2, 3, 3, 2],
+  music: [4, 4, 2, 0, -1, -1, 0, 1, 2, 2],
 };
-const EQ_LABEL = { flat: 'Flat', bass: 'Bass', voice: t('Stimme'), gaming: 'Gaming', clear: t('Klar') };
+const EQ_LABEL = { flat: 'Flat', bass: 'Bass', voice: t('Stimme'), gaming: 'Gaming', clear: t('Klar'), music: t('Musik') };
 // more own presets would wrap the chips and push the sound tab into scrolling
 const EQ_OWN_MAX = 4;
 const isBuiltIn = (k) => Object.hasOwn(EQ_BUILTIN, k);
@@ -34,8 +35,13 @@ const presetKeys = () => [...Object.keys(EQ_BUILTIN), ...Object.keys(cfg.eq_pres
 const curveOf = (k) => (isBuiltIn(k) ? cfg.eq_edits[k] || EQ_BUILTIN[k] : cfg.eq_presets[k] || EQ_BUILTIN.flat);
 // a channel whose own preset is gone plays flat, the core does the same
 const chPreset = (id) => (isBuiltIn(cfg[id].eq) || cfg.eq_presets[cfg[id].eq] ? cfg[id].eq : 'flat');
-// keys, English labels and the German labels of voice and clear
-const reservedName = (n) => [...Object.keys(EQ_BUILTIN), 'stimme', 'klar'].includes(n.toLowerCase());
+// the built-in a name stands for: its key, which is also the English label, or the German label
+const GERMAN_LABELS = { stimme: 'voice', klar: 'clear', musik: 'music' };
+const builtinFor = (n) => {
+  const l = n.toLowerCase();
+  return isBuiltIn(l) ? l : Object.hasOwn(GERMAN_LABELS, l) ? GERMAN_LABELS[l] : null;
+};
+const reservedName = (n) => builtinFor(n) !== null;
 const curves = (o) => Object.fromEntries(Object.entries(o || {})
   .filter(([, g]) => Array.isArray(g) && g.length === 10 && g.every(Number.isFinite)));
 const FREQ = ['31', '62', '125', '250', '500', '1k', '2k', '4k', '8k', '16k'];
@@ -148,7 +154,7 @@ function defaults(c) {
   c.auto ??= true;
   for (const [id] of CHANNELS) {
     // as in the core: a missing channel starts with its own preset, a channel without one plays flat
-    c[id] ??= { eq: { game: 'gaming', chat: 'voice' }[id] ?? 'flat' };
+    c[id] ??= { eq: { game: 'gaming', chat: 'voice', music: 'music' }[id] ?? 'flat' };
     c[id].volume ??= 100;
     c[id].mute ??= false;
     c[id].eq ??= 'flat';
@@ -161,6 +167,14 @@ function defaults(c) {
   // no prototype: a preset named "__proto__" or "toString" is a plain key, never an inherited one
   c.eq_presets = Object.assign(Object.create(null), curves(c.eq_presets));
   c.eq_edits = Object.fromEntries(Object.entries(curves(c.eq_edits)).filter(([k]) => isBuiltIn(k)));
+  // an own preset named like a later built-in ("Musik" before 0.0.6) becomes it; a different curve stays as its tuning
+  for (const [name, g] of Object.entries(c.eq_presets)) {
+    const k = builtinFor(name);
+    if (!k) continue;
+    if (!c.eq_edits[k] && g.some((v, i) => v !== EQ_BUILTIN[k][i])) c.eq_edits[k] = g;
+    for (const [id] of CHANNELS) if (c[id].eq === name) c[id].eq = k;
+    delete c.eq_presets[name];
+  }
   // up to 0.0.2 one equalizer worked on everything; a tuned curve stays as an own preset
   if (Array.isArray(c.eq)) {
     const g = c.eq;
