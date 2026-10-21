@@ -54,7 +54,6 @@ struct Params {
     gain: [AtomicU32; N],
     /// per channel the 10 band gains of its preset
     ch_eq: [[AtomicU32; 10]; N],
-    master: AtomicU32,
     bass_db: AtomicU32,
     limiter: AtomicBool,
     clarity: AtomicBool,
@@ -93,7 +92,6 @@ impl Params {
                 put(a, if g.is_finite() { g.clamp(-12.0, 12.0) } else { 0.0 });
             }
         }
-        put(&self.master, dsp::fader_to_gain(cfg.master));
         put(&self.bass_db, if night { 0.0 } else { cfg.bass.clamp(0.0, 100.0) * 0.12 });
         self.limiter.store(cfg.limiter, Relaxed);
         self.clarity.store(cfg.clarity, Relaxed);
@@ -163,7 +161,6 @@ fn format_pod(channels: u32) -> Vec<u8> {
 /// Output mix state, owned by the output stream's realtime callback.
 struct Mix {
     gains: [Smooth; N],
-    master: Smooth,
     duck: Smooth,
     duck_env: Envelope,
     ch_eq: [[Eq10; 2]; N],
@@ -179,7 +176,6 @@ impl Mix {
     fn new() -> Self {
         Self {
             gains: [Smooth::new(0.0, 20.0); N],
-            master: Smooth::new(0.0, 20.0),
             duck: Smooth::new(1.0, 200.0),
             duck_env: Envelope::new(400.0),
             ch_eq: Default::default(),
@@ -724,7 +720,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let ducking = p.ducking.load(Relaxed);
             let monitor = p.monitor.load(Relaxed);
             let targets: [f32; N] = std::array::from_fn(|i| load(&p.gain[i]));
-            let target_master = load(&p.master);
             let mut locked: [_; N] = std::array::from_fn(|i| lock(&out_rings[i]));
             // keep app audio at most ~3 cycles behind; anything older is a backlog, not a buffer
             for ring in locked.iter_mut() {
@@ -780,9 +775,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     l *= g;
                     r *= g;
                 }
-                let m = mix.master.next(target_master);
-                l *= m;
-                r *= m;
                 if mon_play {
                     let v = mon_el.next(&mut mon);
                     l += v * 0.8;

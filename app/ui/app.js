@@ -129,7 +129,6 @@ function defaults(c) {
     c[id].mute ??= false;
     c[id].eq ??= 'flat';
   }
-  c.master ??= 100;
   c.chatmix ??= 0;
   c.bass ??= 0;
   c.limiter ??= true;
@@ -1420,11 +1419,6 @@ async function init() {
   if (initialized) return;
   initialized = true;
   defaults(cfg);
-  // the internal master stage from earlier builds stays at unity; volume is the device's job now
-  if (cfg.master !== 100) {
-    cfg.master = 100;
-    save();
-  }
   const box = $('strips');
   for (const [id, label] of CHANNELS) box.append(strip(id, label, false));
   box.append(el('div', 'sep'), strip('master', 'Master', true));
