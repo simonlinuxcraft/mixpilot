@@ -10,7 +10,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends pkg-config libclang-dev libpipewire-0.3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev libxdo-dev libssl-dev dbus
-      - run: rustup update --no-self-update stable && rustup default stable && rustup component add clippy
+      # the toolchain of the snap build, so a new Rust release cannot turn the checks red by itself
+      - run: rustup toolchain install 1.99.0 --profile minimal -c clippy && rustup default 1.99.0
       - name: Core
         working-directory: core
         run: cargo clippy --locked --all-targets -- -D warnings && cargo test --locked

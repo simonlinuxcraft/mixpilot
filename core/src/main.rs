@@ -651,7 +651,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let over = (ring.len() + keep * 2).saturating_sub(RING_MAX);
                 let n = over.min(ring.len());
                 ring.drain(..n);
-                ring.extend(bytes.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])));
+                ring.extend(bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)));
             })
             .register()?;
         stream.connect(
@@ -901,8 +901,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             for chunk in bytes[start..end].chunks(2048 * 4) {
                 let mut input = [0f32; 2048];
                 let n = chunk.len() / 4;
-                for (i, b) in chunk.chunks_exact(4).enumerate() {
-                    input[i] = f32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+                for (i, b) in chunk.as_chunks::<4>().0.iter().enumerate() {
+                    input[i] = f32::from_le_bytes(*b);
                 }
                 let (pk, ip) = mic_dsp.process(&input[..n], &p, &mut out, monitor.then_some(&mut *mon));
                 peak = peak.max(pk);
