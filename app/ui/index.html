@@ -37,11 +37,13 @@
       <button id="win-close" class="tb-btn close" title="Schließen, Mixpilot läuft im Hintergrund weiter" aria-label="Schließen"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8"></path></svg></button>
     </div>
   </div>
-  <nav class="tabs" aria-label="Bereiche">
-    <button class="tab" data-tab="mixer" aria-pressed="true">Mixer</button>
-    <button class="tab" data-tab="sound" aria-pressed="false">Sound</button>
-    <button class="tab" data-tab="mic" aria-pressed="false">Mikrofon</button>
-    <button class="tab" data-tab="auto" aria-pressed="false">Automatik</button>
+  <nav class="tabs">
+    <div class="tablist" role="tablist" aria-label="Bereiche">
+      <button class="tab" id="tabbtn-mixer" data-tab="mixer" role="tab" aria-selected="true" aria-controls="tab-mixer">Mixer</button>
+      <button class="tab" id="tabbtn-sound" data-tab="sound" role="tab" aria-selected="false" aria-controls="tab-sound" tabindex="-1">Sound</button>
+      <button class="tab" id="tabbtn-mic" data-tab="mic" role="tab" aria-selected="false" aria-controls="tab-mic" tabindex="-1">Mikrofon</button>
+      <button class="tab" id="tabbtn-auto" data-tab="auto" role="tab" aria-selected="false" aria-controls="tab-auto" tabindex="-1">Automatik</button>
+    </div>
     <span class="spacer"></span>
     <label class="field inline">Ausgabe<select id="output" class="output-select"></select></label>
     <label class="field inline">Eingabe<select id="input" class="input-select"></select></label>
@@ -50,7 +52,7 @@
   <main>
     <p id="error" class="error" role="alert" hidden></p>
 
-    <section id="tab-mixer" class="page">
+    <section id="tab-mixer" class="page" role="tabpanel" aria-labelledby="tabbtn-mixer">
       <div class="strips" id="strips"></div>
       <div class="cols">
         <div class="card grow">
@@ -69,7 +71,7 @@
       </div>
     </section>
 
-    <section id="tab-sound" class="page" hidden>
+    <section id="tab-sound" class="page" role="tabpanel" aria-labelledby="tabbtn-sound" hidden>
       <div class="grid">
         <div class="card">
           <div class="card-head"><h2 class="title">Bass Boost</h2>
@@ -104,7 +106,7 @@
       </div>
     </section>
 
-    <section id="tab-mic" class="page" hidden>
+    <section id="tab-mic" class="page" role="tabpanel" aria-labelledby="tabbtn-mic" hidden>
       <div class="card">
         <div class="card-head"><h2 class="label">MIKROFON <span id="mic-name"></span></h2><button class="mono mic-state" id="mic-state" title="Klicken hebt die Stummschaltung auf" disabled></button></div>
         <div class="meter-row"><span class="meter-label" id="mic-in-label">Eingang</span><div class="hmeter" id="mic-in-meter" role="meter" aria-labelledby="mic-in-label" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div></div>
@@ -157,7 +159,7 @@
       </div>
     </section>
 
-    <section id="tab-auto" class="page" hidden>
+    <section id="tab-auto" class="page" role="tabpanel" aria-labelledby="tabbtn-auto" hidden>
       <div class="cols">
         <div class="card grow" id="rules-card">
           <h2 class="label">REGELN</h2>

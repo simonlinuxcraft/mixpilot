@@ -86,7 +86,8 @@ option { background: var(--panel2); color: var(--text); }
 .field.inline { flex-direction: row; align-items: center; gap: 8px; margin-left: 10px; }
 .field.inline select { width: 200px; min-height: 36px; }
 .tab { min-height: 42px; padding: 0 18px; border: none; border-radius: 8px; background: transparent; color: var(--muted); font-weight: 600; cursor: pointer; box-shadow: inset 0 -2px 0 transparent; }
-.tab[aria-pressed="true"] { background: var(--panel2); color: var(--text); box-shadow: inset 0 -2px 0 var(--acc2); }
+.tablist { display: flex; gap: 4px; }
+.tab[aria-selected="true"] { background: var(--panel2); color: var(--text); box-shadow: inset 0 -2px 0 var(--acc2); }
 .core-status { font-size: 12px; color: var(--muted); white-space: nowrap; margin-right: 6px; }
 .core-status.off { color: var(--red); }
 

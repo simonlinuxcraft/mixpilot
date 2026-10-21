@@ -1480,10 +1480,21 @@ async function init() {
     b.addEventListener('click', () => {
       tab = b.dataset.tab;
       editFor = null;
-      document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-pressed', String(t === b)));
+      document.querySelectorAll('.tab').forEach((t) => { t.setAttribute('aria-selected', String(t === b)); t.tabIndex = t === b ? 0 : -1; });
       document.querySelectorAll('.page').forEach((p) => (p.hidden = p.id !== `tab-${tab}`));
     });
   }
+  // arrow keys move between the tabs, Tab leaves the row
+  document.querySelector('.tablist').addEventListener('keydown', (e) => {
+    const tabs = [...document.querySelectorAll('.tab')];
+    const i = tabs.indexOf(document.activeElement);
+    const j = { ArrowLeft: i - 1, ArrowRight: i + 1, Home: 0, End: tabs.length - 1 }[e.key];
+    if (j === undefined) return;
+    e.preventDefault();
+    const b = tabs[(j + tabs.length) % tabs.length];
+    b.click();
+    b.focus();
+  });
   document.addEventListener('click', (e) => { if (eqMenu && !eqMenu.box.contains(e.target)) closeEqMenu(); });
   addEventListener('resize', () => closeEqMenu());
   paintAll();
