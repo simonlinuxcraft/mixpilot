@@ -383,6 +383,8 @@ struct Elastic {
     extra: usize,
     clean: usize,
     frames: usize,
+    /// reader frames since a read found the ring short while it still held samples
+    stalled: Option<usize>,
 }
 
 impl Elastic {
@@ -393,17 +395,22 @@ impl Elastic {
         let block = block.div_ceil(FRAME).max(1) * FRAME;
         let mut len = ring.len();
         if !self.playing {
+            if let Some(w) = &mut self.stalled {
+                *w += frames;
+            }
             if len < goal + FRAME {
                 return false;
             }
-            *self = Self { playing: true, low: usize::MAX, extra: self.extra, frames, ..Self::default() };
+            // a writer that refilled the ring right away was only late: keep more headroom from now on.
+            // One that stopped (another device, a USB hiccup, suspend) says nothing about its timing
+            let late = self.stalled.is_some_and(|w| w <= goal + FRAME + 2 * block);
+            let extra = if late { (self.extra + FRAME).min(4 * FRAME) } else { self.extra };
+            *self = Self { playing: true, low: usize::MAX, extra, frames, ..Self::default() };
         }
         // what this read takes, plus the interpolation's look-ahead
         if len < (self.pos + frames as f32 * (1.0 + self.speed)) as usize + 3 {
             // an empty ring is a paused microphone and a larger read a new quantum, neither is jitter
-            if len > 0 && frames == self.frames {
-                self.extra = (self.extra + FRAME).min(4 * FRAME);
-            }
+            self.stalled = (len > 0 && frames == self.frames).then_some(0);
             self.clean = 0;
             self.playing = false;
             return false;
@@ -1466,6 +1473,23 @@ mod tests {
             assert!(bad <= 2, "{bad} bad reads with in {qi} out {qo} {ppm} ppm");
             assert!(fill < qo as f64 + 2000.0, "mean fill {fill:.0} with in {qi} out {qo} {ppm} ppm");
         }
+    }
+
+    #[test]
+    fn microphone_ring_does_not_grow_after_outages() {
+        // the capture side stops for 100 ms every 30 s (another device, a USB hiccup): no extra latency
+        let mut el = super::Elastic::default();
+        let mut ring = VecDeque::new();
+        let mut out = [0f32; 1024];
+        for cycle in 0..20_000 {
+            if cycle % 1400 < 1395 {
+                ring.extend([0.5f32; 1024]);
+            }
+            if el.start(&mut ring, 1024, 1024) {
+                out.iter_mut().for_each(|o| *o = el.next(&mut ring));
+            }
+        }
+        assert_eq!(el.extra, 0, "headroom grew to {} samples", el.extra);
     }
 
     #[test]
