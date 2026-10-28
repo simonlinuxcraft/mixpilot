@@ -17,7 +17,7 @@ description: |
 
   Microphone
   - Noise suppression (RNNoise), noise gate with automatic threshold and auto gain
-  - Voice presets: Natural, Warm, Radio, Broadcast
+  - Voice presets: Natural, Warm, Radio, Broadcast, Podcast, Laptop mic
   - Shows up as "Mixpilot Microphone" in Discord, OBS and any other app
   - Hear yourself to check how you sound
   - Microphone test: record five seconds and play them back

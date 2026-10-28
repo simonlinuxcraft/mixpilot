@@ -44,7 +44,7 @@ const FRAME: usize = DenoiseState::FRAME_SIZE;
 const TICK_MS: u64 = 50;
 const RETRY_TICKS: u32 = 40;
 /// Bumped whenever the app needs something new from the core; must match STATE_PROTO in the app.
-const STATE_PROTO: u32 = 5;
+const STATE_PROTO: u32 = 6;
 /// mix channels, see config::CHANNELS
 const N: usize = CHANNELS.len();
 
@@ -68,6 +68,8 @@ struct Params {
     monitor: AtomicBool,
     /// samples per capture cycle, written by the microphone callback for the readers of its rings
     mic_block: AtomicUsize,
+    /// set before the microphone connects, so the new session starts at the current gain
+    mic_fresh: AtomicBool,
 }
 
 fn put(a: &AtomicU32, v: f32) {
@@ -108,13 +110,15 @@ impl Params {
     }
 }
 
-/// Peak meters: channels L/R, then master L/R, microphone processed, microphone input.
+/// Peak meters: channels L/R, then master L/R, microphone processed, microphone input after the
+/// gain, microphone as the device delivers it.
 /// The realtime side keeps the maximum, the main loop takes and resets it on every tick.
 const LV_MASTER: usize = 2 * N;
 const LV_MIC: usize = 2 * N + 2;
 const LV_MIC_IN: usize = 2 * N + 3;
+const LV_MIC_RAW: usize = 2 * N + 4;
 #[derive(Default)]
-struct Levels([AtomicU32; 2 * N + 4]);
+struct Levels([AtomicU32; 2 * N + 5]);
 
 impl Levels {
     fn raise(&self, i: usize, v: f32) {
@@ -123,7 +127,7 @@ impl Levels {
             self.0[i].fetch_max(v.abs().to_bits(), Relaxed);
         }
     }
-    fn take(&self) -> [f32; 2 * N + 4] {
+    fn take(&self) -> [f32; 2 * N + 5] {
         std::array::from_fn(|i| f32::from_bits(self.0[i].swap(0, Relaxed)))
     }
 }
@@ -212,7 +216,7 @@ impl Mix {
 }
 
 /// Microphone chain, owned by the capture stream's realtime callback:
-/// gain, RNNoise in 10 ms frames, voice preset, gate, auto level, broadcast compression, limiter.
+/// gain, RNNoise in 10 ms frames, voice preset, gate, auto level, preset compression, limiter.
 struct MicDsp {
     denoise: Box<DenoiseState<'static>>,
     inbuf: [f32; FRAME],
@@ -222,12 +226,14 @@ struct MicDsp {
     voice_idx: u32,
     gate: Gate,
     agc: Agc,
-    comp: Leveler,
+    comp: Option<Leveler>,
     deess: DeEsser,
     deess_idx: u32,
     limiter: Limiter,
     gain: Smooth,
     vad: Smooth,
+    /// gain, noise mode, gate and AGC switch the AGC's noise floor was learned with
+    agc_seen: (u32, u32, bool, bool),
 }
 
 impl MicDsp {
@@ -241,14 +247,19 @@ impl MicDsp {
             voice_idx: 0,
             gate: Gate::new(),
             agc: Agc::voice(),
-            comp: Leveler::broadcast(),
+            comp: None,
             deess: DeEsser::new(1),
             deess_idx: 1,
-            // -3 dBFS leaves headroom for the codecs of voice chat apps
-            limiter: Limiter::new(-3.0, 80.0),
+            limiter: Self::limiter(),
             gain: Smooth::new(1.0, 20.0),
             vad: Smooth::new(1.0, 60.0),
+            agc_seen: (0, 0, false, false),
         }
+    }
+
+    // -3 dBFS leaves headroom for the codecs of voice chat apps
+    fn limiter() -> Limiter {
+        Limiter::new(-3.0, 80.0)
     }
 
     /// Returns (processed peak, input peak after gain).
@@ -257,6 +268,7 @@ impl MicDsp {
         if v != self.voice_idx {
             self.voice_idx = v;
             self.voice = dsp::voice_preset(v);
+            self.comp = dsp::voice_comp(v);
         }
         let d = p.mic_deess.load(Relaxed);
         if d != self.deess_idx {
@@ -264,7 +276,25 @@ impl MicDsp {
             self.deess = DeEsser::new(d);
         }
         let (target, noise) = (load(&p.mic_gain), p.mic_noise.load(Relaxed));
+        if p.mic_fresh.swap(false, Relaxed) {
+            // gliding from the last session's gain would send the first 80 ms of a muted microphone,
+            // and the filters and the limiter's look-ahead still ring with the previous session.
+            // The AGC keeps what it learned about the voice.
+            self.gain.value = target;
+            self.filled = 0;
+            self.voice = dsp::voice_preset(self.voice_idx);
+            self.comp = dsp::voice_comp(self.voice_idx);
+            self.deess = DeEsser::new(self.deess_idx);
+            self.limiter = Self::limiter();
+            self.agc.restart();
+        }
         let (gate_on, agc_on) = (p.mic_gate.load(Relaxed), p.mic_agc.load(Relaxed));
+        // each of these moves the noise floor in front of the AGC by up to 30 dB at once
+        let seen = (target.to_bits(), noise, gate_on, agc_on);
+        if seen != self.agc_seen {
+            self.agc_seen = seen;
+            self.agc.restart();
+        }
         let mut mon = mon;
         let (mut peak, mut in_peak) = (0f32, 0f32);
         for &x in input {
@@ -293,19 +323,29 @@ impl MicDsp {
             }
             // "strong" also ducks everything RNNoise does not classify as voice
             let vad_target = if noise == 2 && vad < 0.6 { 0.1 } else { 1.0 };
-            let broadcast = self.voice_idx == 3;
-            for i in 0..FRAME {
-                let mut y = run5(&mut self.voice, sanitize(self.frame_out[i]));
+            let (mut power, mut before) = (0.0, 0.0);
+            for s in &mut self.frame_out {
+                let mut y = run5(&mut self.voice, sanitize(*s));
+                before += y * y;
                 if gate_on {
                     // with RNNoise running its voice detection is the better judge than loudness
                     y = if noise > 0 { self.gate.run_voice(y, vad >= 0.5) } else { self.gate.run(y) };
                 }
-                y *= self.vad.next(vad_target);
+                *s = y * self.vad.next(vad_target);
+                power += *s * *s;
+            }
+            // the voice from what the gate let through, so typing it shut out never turns it up;
+            // the noise floor from before the gate
+            if agc_on {
+                self.agc.frame(power / FRAME as f32, before / FRAME as f32);
+            }
+            for i in 0..FRAME {
+                let mut y = self.frame_out[i];
                 if agc_on {
-                    y *= self.agc.gain(y);
+                    y *= self.agc.gain();
                 }
-                if broadcast {
-                    y *= self.comp.gain(y);
+                if let Some(c) = &mut self.comp {
+                    y *= c.gain(y);
                 }
                 // last before the limiter: compression and presence boosts push S sounds forward
                 if d > 0 {
@@ -460,6 +500,15 @@ impl App {
 /// (time, key, args); the app turns key and args into a sentence in the user's language
 type Events = Rc<RefCell<VecDeque<(String, &'static str, Vec<String>)>>>;
 
+/// pw_stream_connect keeps a given target id as the stream property node.target for every later
+/// connect, so after one pinned device "system default" would never apply again. Call while disconnected.
+fn forget_target(s: &pw::stream::Stream) {
+    let items = [c"node.target", c"target.object"].map(|k| spa::sys::spa_dict_item { key: k.as_ptr(), value: std::ptr::null() });
+    let dict = spa::sys::spa_dict { flags: 0, n_items: items.len() as u32, items: items.as_ptr() };
+    // a NULL value removes the key; dict and strings outlive the call
+    unsafe { pw::sys::pw_stream_update_properties(s.as_raw_ptr(), &dict) };
+}
+
 fn local_time() -> (u32, u32) {
     unsafe {
         let t = libc::time(std::ptr::null_mut());
@@ -537,7 +586,7 @@ fn fresh(path: &Path, secs: u64) -> bool {
         .is_ok_and(|t| SystemTime::now().duration_since(t).is_ok_and(|d| d.as_secs() < secs))
 }
 
-fn levels_json(l: &[f32; 2 * N + 4], mic_on: bool) -> serde_json::Value {
+fn levels_json(l: &[f32; 2 * N + 5], mic_on: bool) -> serde_json::Value {
     let mut m = serde_json::Map::new();
     for (i, ch) in CHANNELS.iter().enumerate() {
         m.insert(ch.id.into(), serde_json::json!([l[2 * i], l[2 * i + 1]]));
@@ -545,6 +594,8 @@ fn levels_json(l: &[f32; 2 * N + 4], mic_on: bool) -> serde_json::Value {
     m.insert("master".into(), serde_json::json!([l[LV_MASTER], l[LV_MASTER + 1]]));
     m.insert("mic".into(), serde_json::json!(if mic_on { l[LV_MIC] } else { -1.0 }));
     m.insert("mic_in".into(), serde_json::json!(if mic_on { l[LV_MIC_IN] } else { -1.0 }));
+    // at full scale the device clipped before Mixpilot got the signal
+    m.insert("mic_raw".into(), serde_json::json!(if mic_on { l[LV_MIC_RAW] } else { -1.0 }));
     serde_json::Value::Object(m)
 }
 
@@ -896,13 +947,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut out = lock(&mo);
             let monitor = p.monitor.load(Relaxed);
             let mut mon = lock(&mm);
-            let (mut peak, mut in_peak) = (0f32, 0f32);
+            let (mut peak, mut in_peak, mut raw) = (0f32, 0f32, 0f32);
             // a quantum above 2048 (raised max-quantum) comes in pieces, the stack buffer stays small
             for chunk in bytes[start..end].chunks(2048 * 4) {
                 let mut input = [0f32; 2048];
                 let n = chunk.len() / 4;
                 for (i, b) in chunk.as_chunks::<4>().0.iter().enumerate() {
                     input[i] = f32::from_le_bytes(*b);
+                    raw = raw.max(input[i].abs());
                 }
                 let (pk, ip) = mic_dsp.process(&input[..n], &p, &mut out, monitor.then_some(&mut *mon));
                 peak = peak.max(pk);
@@ -912,6 +964,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             drop(out);
             lv.raise(LV_MIC, peak);
             lv.raise(LV_MIC_IN, in_peak);
+            lv.raise(LV_MIC_RAW, raw);
         })
         .register()?;
 
@@ -1039,7 +1092,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let out_ticks = Cell::new(0u32);
     let (out_seen, out_want) = (Cell::new(u32::MAX), RefCell::new(None::<String>));
     let (mic_seen, mic_want) = (Cell::new(u32::MAX), RefCell::new(None::<String>));
-    let (mic_on, mic_idle, mic_wait) = (Cell::new(false), Cell::new(0u32), Cell::new(0u32));
+    let (mic_on, mic_idle, mic_wait, mic_pinned) = (Cell::new(false), Cell::new(0u32), Cell::new(0u32), Cell::new(false));
     let mic_test = state_dir.join("mic-test");
     let viewer = state_dir.join("viewer");
     let state_file = state_dir.join("state.json");
@@ -1150,6 +1203,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // microphone on demand
+        // the open stream keeps node.target from a pinned connect, only a new connect follows the default
+        if mic_on.get() && mic_pinned.get() && rcfg.borrow().input.is_empty() {
+            let _ = mic.disconnect();
+            lock(&mic_out).clear();
+            mic_on.set(false);
+        }
         if merr.replace(false) {
             let _ = mic.disconnect();
             // leftovers would read as a late microphone and play stale voice on the next start
@@ -1165,6 +1224,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let flags = StreamFlags::AUTOCONNECT | StreamFlags::MAP_BUFFERS | StreamFlags::RT_PROCESS;
                 let input = rcfg.borrow().input.clone();
                 let target = devs.borrow().iter().find(|(_, d)| !d.sink && d.name == input && !input.starts_with("mixpilot")).map(|(id, _)| *id);
+                if target.is_none() {
+                    forget_target(&mic);
+                }
+                mic_pinned.set(target.is_some());
+                p.mic_fresh.store(true, Relaxed);
                 match mic.connect(spa::utils::Direction::Input, target, flags, &mut [Pod::from_bytes(&mono2).unwrap()]) {
                     Ok(()) => {
                         mic_on.set(true);

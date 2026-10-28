@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Auto level for the microphone no longer creeps up during pauses, so the first word after a pause does not come in too loud. A shout or a laugh is turned down within 10 ms instead of being flattened by the limiter, and the voice after a laugh stays within about 2 dB instead of dropping by 5 dB or more. Single clicks and knocks that get past the gate no longer make it turn up. Tuned on a real recording, quiet speech gets the same lift as before
+- The microphone page warns when the microphone already clips before Mixpilot gets the sound, which no processing can repair, and says to turn its level down in the system's sound settings
+- Two new voice presets. Podcast: the full, close-miked podcast voice with dense compression, clearer than Warm and with less boom and edge than Broadcast. Laptop mic: for microphones built into laptops and webcams, with less room sound and hum and the speech band brought forward
+- Warm rolls off the top more gently, from 8 kHz instead of 6 kHz, so it sounds soft instead of muffled. Broadcast lifts 120 Hz by 5 dB instead of 7, so deep voices no longer boom
+- A muted microphone is silent from the very first moment. After a restart of the audio core, or when you muted while no app was listening, the next app that opened the microphone still got about 80 ms of your voice
+- Setting the input back to "System default" after picking a fixed microphone works again. Mixpilot kept recording the old device until it was restarted
+
 ## 0.0.6 - Easier for everyone
 
 - Keyboard and screen readers: the tabs switch with the arrow keys, dialogs take the focus and give it back, every mute button names its channel, sliders and the microphone levels read out their values in words, and errors and the audio core status are announced. Ctrl+Plus and Ctrl+Minus zoom both windows, the content scrolls only when zoomed in. Slider tracks, unlit meter segments and the rules dimmed while Autopilot is off have more contrast

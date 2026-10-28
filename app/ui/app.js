@@ -54,12 +54,14 @@ const AUTOVOL = [
 ];
 const NOISE = [['off', t('Aus')], ['normal', 'Normal'], ['strong', t('Stark')]];
 const DEESS = NOISE;
-const VOICE = [['natural', t('Natürlich')], ['warm', 'Warm'], ['radio', 'Radio'], ['broadcast', 'Broadcast']];
+const VOICE = [['natural', t('Natürlich')], ['warm', 'Warm'], ['radio', 'Radio'], ['broadcast', 'Broadcast'], ['podcast', t('Podcast')], ['laptop', t('Laptop-Mikro')]];
 const VOICE_TEXT = {
   natural: t('Deine Stimme wie sie ist, nur Rumpeln unter 80 Hz wird entfernt.'),
   warm: t('Voller und weicher: mehr Körper, weniger Schärfe und Zischen.'),
   radio: t('Telefon- und Funkklang, nur das schmale Sprachband.'),
   broadcast: t('Moderatorenstimme: nah, präsent, dicht komprimiert.'),
+  podcast: t('Nah besprochene Podcast-Stimme: satt, klar und dicht.'),
+  laptop: t('Für eingebaute Mikros in Laptop und Webcam: weniger Raumklang und Brummen, besser verständlich.'),
 };
 // autopilot events arrive from the core as key + arguments
 const EVENTS = {
@@ -968,12 +970,25 @@ function paintEvents(events) {
 // ---------- live state ----------
 let micLevel = 0;
 let micInLevel = 0;
+let clippedAt = 0;
+let showsClip = false;
+function paintClip(clipped) {
+  if (clipped === showsClip) return;
+  showsClip = clipped;
+  $('gain-hint').classList.toggle('alert', clipped);
+  $('gain-hint').textContent = clipped
+    ? t('Dein Mikrofon übersteuert, bevor Mixpilot den Ton bekommt. Stell den Mikrofonpegel in den Sound-Einstellungen deines Systems leiser.')
+    : t('Beim Sprechen sollte "Eingang" fast bis ans rechte Ende reichen, aber nicht ganz.');
+}
 async function tick() {
   if (document.hidden) return;
   let s;
   try {
     s = await invoke('get_state', { micTest: tab === 'mic' });
   } catch {
+    // no core, no level: an old clip warning would stay forever
+    clippedAt = 0;
+    paintClip(false);
     return;
   }
   const lv = s.levels || {};
@@ -993,6 +1008,9 @@ async function tick() {
       }
     }
   }
+  // full scale from the device: clipped in its own preamp, no processing can undo that
+  if (lv.mic_raw >= 0.99) clippedAt = Date.now();
+  paintClip(Date.now() - clippedAt < 5000);
   micLevel = lv.mic >= 0 ? decay(micLevel, frac(lv.mic)) : 0;
   micInLevel = lv.mic_in >= 0 ? decay(micInLevel, frac(lv.mic_in)) : 0;
   setMicMeter(micLevel);

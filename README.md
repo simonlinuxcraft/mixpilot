@@ -75,7 +75,7 @@ Needs PipeWire with WirePlumber, the default on most current distributions
 - Virtual "Mixpilot Microphone" for Discord, OBS and every other app
 - Noise suppression (RNNoise), a noise gate with automatic threshold and a de-esser against sharp S sounds
 - Auto level, gain up to 200 %
-- Voice presets: Natural, Warm, Radio, Broadcast
+- Voice presets: Natural, Warm, Radio, Broadcast, Podcast, Laptop mic
 - Hear yourself, with meters for the raw and the processed signal
 - Microphone test: record five seconds and hear how the others hear you
 - Push-to-mute: one key mutes and unmutes the microphone from anywhere, picked in your desktop's own shortcut dialog (GNOME 48 or newer, KDE Plasma)

@@ -144,6 +144,7 @@ FEED=$!
 sleep 0.5
 v=$(rms mixpilot_mic)
 check "processed voice arrives at Mixpilot Mikrofon" "$(near "$v" 0.354)"
+check "raw microphone peak reported for the clip warning" "$(near "$(level "s['levels']['mic_raw']")" 0.5)"
 check "microphone opened for the listener" "$(grep -Fq 'mic_active' "$W/daemon.log" && echo ok || echo 'no activation logged')"
 check "test source used, not the real microphone" "$(pw-link -l | grep -q 'mp_test_mic:capture' || grep -Fq 'input ["mp_test_mic"]' "$W/daemon.log" && echo ok || echo 'input target not applied')"
 cfg '{"mic":{"gain":50}}'
@@ -151,6 +152,26 @@ check "mic gain 50 % -> 0.044" "$(near "$(rms mixpilot_mic)" 0.0442)"
 cfg '{"mic":{"gain":100,"mute":true}}'
 check "mic muted -> silence" "$(near "$(rms mixpilot_mic)" 0)"
 cfg '{"mic":{"mute":false}}'
+# a new session must not glide from the last one: unmuted, closed, muted while nobody listened
+rms mixpilot_mic >/dev/null
+sleep 2.5
+cfg '{"mic":{"mute":true}}'
+: >"$W/cap.wav"
+timeout 1.5 pw-record --target mixpilot_mic --rate 48000 --channels 1 --format s16 "$W/cap.wav" >/dev/null 2>&1
+p=$(python3 -c "import wave,array; w=wave.open('$W/cap.wav'); a=array.array('h',w.readframes(w.getnframes())); print('%.4f'%(max(map(abs,a or [0]))/32768))")
+check "muted while closed -> silent from the first sample (peak $p)" "$(near "$p" 0)"
+cfg '{"mic":{"mute":false}}'
+# back to "system default" after a pinned device, while the microphone is open
+module module-remap-source source_name=mp_test_mic2 master=mp_test_micbus.monitor
+pactl set-default-source mp_test_mic2
+timeout 3 pw-record --target mixpilot_mic "$W/hold.wav" >/dev/null 2>&1 &
+HOLD=$!
+sleep 1
+cfg '{"input":""}'
+sleep 1
+check "input back to the system default (pinned before)" "$(case "$(links_of mp_test_mic2)" in *mixpilot_mic_in*) echo ok ;; *) echo "still on: $(links_of mp_test_mic)" ;; esac)"
+cfg '{"input":"mp_test_mic"}'
+wait $HOLD
 kill $FEED; FEED=
 pw-cat -p --target mp_test_micbus -P '{ node.name=feed_noise }' "$W/noise.wav" >/dev/null 2>&1 &
 FEED=$!
@@ -176,6 +197,9 @@ check "no peak above -3 dBFS (peak $2)" "$(between "$2" 0 0.709)"
 cfg '{"mic":{"voice":"broadcast"}}'
 set -- $(stats)
 check "broadcast stays below -3 dBFS too (peak $2)" "$(between "$2" 0 0.709)"
+cfg '{"mic":{"voice":"podcast"}}'
+set -- $(stats)
+check "podcast keeps the level (rms $1) below -3 dBFS (peak $2)" "$( [ "$(between "$1" 0.045 0.11)" = ok ] && between "$2" 0 0.709 || between "$1" 0.045 0.11)"
 # broadband noise shows the presets best: radio cuts everything outside 300 Hz to 3.5 kHz
 # (the de-esser would pull the noise down in both, so it is off to compare the filters alone)
 cfg '{"mic":{"agc":false,"voice":"natural","noise":"off","deess":"off"}}'

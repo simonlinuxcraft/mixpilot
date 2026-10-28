@@ -81,8 +81,8 @@ impl Biquad {
     }
 }
 
-/// Microphone voice presets: 0 natural, 1 warm, 2 radio, 3 broadcast.
-pub const VOICE_PRESETS: [&str; 4] = ["natural", "warm", "radio", "broadcast"];
+/// Microphone voice presets: 0 natural, 1 warm, 2 radio, 3 broadcast, 4 podcast, 5 laptop microphone.
+pub const VOICE_PRESETS: [&str; 6] = ["natural", "warm", "radio", "broadcast", "podcast", "laptop"];
 
 /// Up to five filters, enough for presets that are clearly audible, not just a nudge.
 pub type Chain5 = [Biquad; 5];
@@ -99,14 +99,32 @@ pub fn run5(c: &mut Chain5, x: f32) -> f32 {
 pub fn voice_preset(i: u32) -> Chain5 {
     let id = Biquad::identity();
     match i {
-        // fuller and darker: body around 200 Hz up, harshness and hiss down
-        1 => [Biquad::high_pass(70.0), Biquad::low_shelf(220.0, 6.0), Biquad::peaking(3000.0, -3.0, 1.0), Biquad::high_shelf(6000.0, -6.0), id],
+        // fuller and softer, like a ribbon microphone: body below 200 Hz up, the top rolled off gently
+        // from 8 kHz instead of dulled from 6 kHz
+        1 => [Biquad::high_pass(70.0), Biquad::low_shelf(200.0, 4.5), Biquad::peaking(3000.0, -2.0, 0.8), Biquad::high_shelf(8000.0, -4.0), id],
         // telephone band: steep cut below 300 Hz and above 3.5 kHz, honky mids
         2 => [Biquad::high_pass(300.0), Biquad::high_pass(300.0), Biquad::peaking(1600.0, 6.0, 0.9), Biquad::high_shelf(3500.0, -14.0), Biquad::high_shelf(3500.0, -10.0)],
         // radio presenter: proximity bass, mud cut, presence and air (plus heavy compression and a
-        // de-esser, see Leveler::broadcast and DeEsser)
-        3 => [Biquad::high_pass(80.0), Biquad::peaking(120.0, 7.0, 0.8), Biquad::peaking(380.0, -5.0, 1.4), Biquad::peaking(4000.0, 6.0, 0.8), Biquad::high_shelf(9000.0, 5.0)],
+        // de-esser, see Leveler::broadcast and DeEsser). +5 dB at 120 Hz: men's voices have their
+        // fundamental there already, more made them boom
+        3 => [Biquad::high_pass(80.0), Biquad::peaking(120.0, 5.0, 0.8), Biquad::peaking(380.0, -5.0, 1.4), Biquad::peaking(4000.0, 6.0, 0.8), Biquad::high_shelf(9000.0, 5.0)],
+        // close-miked podcast voice: full body below 170 Hz, a slight dip in the boxy 450 Hz, wide
+        // presence and a little air (plus compression, see Leveler::podcast). Clearer than warm,
+        // less boom and edge than broadcast
+        4 => [Biquad::high_pass(70.0), Biquad::low_shelf(170.0, 5.0), Biquad::peaking(450.0, -2.0, 1.0), Biquad::peaking(3800.0, 2.5, 0.7), Biquad::high_shelf(11_000.0, 2.0)],
+        // built-in laptop and webcam microphones: fan rumble and desk knocks out, the boxy room
+        // sound down, the speech band forward, the harsh resonance of the case opening tamed
+        5 => [Biquad::high_pass(120.0), Biquad::peaking(350.0, -3.0, 1.0), Biquad::peaking(2200.0, 4.0, 0.8), Biquad::peaking(6500.0, -3.0, 1.5), id],
         _ => [Biquad::high_pass(80.0), id, id, id, id],
+    }
+}
+
+/// The compressor that belongs to a voice preset, it runs after the AGC.
+pub fn voice_comp(i: u32) -> Option<Leveler> {
+    match i {
+        3 => Some(Leveler::broadcast()),
+        4 => Some(Leveler::podcast()),
+        _ => None,
     }
 }
 
@@ -213,6 +231,11 @@ impl Leveler {
         Self { detect: coef(10.0), hold: true, ..Self::new(-36.0, 6.0, 10.0, 3.0, 120.0) }
     }
 
+    /// Studio compression after the AGC: 2.5:1 from 7 dB under the AGC target, dense but slow enough to stay unnoticed.
+    pub fn podcast() -> Self {
+        Self { detect: coef(25.0), hold: true, ..Self::new(-30.0, 2.5, 4.0, 8.0, 180.0) }
+    }
+
     /// Returns the linear gain to apply to this sample (stereo-linked: feed the louder side).
     #[inline]
     pub fn gain(&mut self, x: f32) -> f32 {
@@ -269,35 +292,129 @@ impl DeEsser {
     }
 }
 
-/// Automatic gain control for speech: steers the voice toward `target` dB RMS within `max_down..max_up`.
-/// Turns down fast, turns up slowly, and holds still in pauses so room noise is never pumped up.
+/// Level the AGC steers toward: RMS of the last 300 ms of sound, in dBFS.
+const AGC_TARGET: f32 = -23.0;
+/// How far a single frame may stand above the target before it is turned down at once.
+const AGC_BURST: f32 = 8.0;
+/// Frames of sound in a row (40 ms) before they count as a voice: syllables last longer, clicks not.
+const AGC_RUN: u32 = 4;
+
+fn per_frame(ms: f32) -> f32 {
+    1.0 - (-10.0 / ms).exp()
+}
+
+/// Automatic gain control for speech, decided once per 10 ms frame: steers the RMS of the last
+/// 300 ms toward AGC_TARGET, turns down within half a second and up within 0.6 s. It holds still
+/// while only the microphone's own noise floor is there, so pauses never lift the gain and the next
+/// word does not start too loud. A shout is turned down within its own frame, before the limiter
+/// would have to flatten it, and counts only as loud as that, so a laugh barely lowers the voice after it.
 pub struct Agc {
     ms: f32,
-    detect: f32,
+    floor_db: f32,
+    /// frames since the voice was last heard, and their summed power
+    quiet: u32,
+    gap: f32,
+    /// sound frames in a row; the first ones wait in `pend` until the run is long enough to be a voice
+    run: u32,
+    pend: f32,
+    /// voice frames in a row above the burst level
+    loud: u32,
+    want: f32,
     gain_db: f32,
+    guard_db: f32,
+    target: f32,
+    out: Smooth,
+    detect: f32,
     up: f32,
     down: f32,
-    target: f32,
-    max_up: f32,
-    max_down: f32,
-    floor: f32,
 }
 
 impl Agc {
     pub fn voice() -> Self {
-        Self { ms: 0.0, detect: coef(300.0), gain_db: 0.0, up: coef(1000.0), down: coef(40.0), target: -23.0, max_up: 15.0, max_down: -20.0, floor: -50.0 }
+        Self {
+            ms: 10f32.powf(AGC_TARGET / 10.0),
+            floor_db: 0.0,
+            quiet: 0,
+            gap: 0.0,
+            run: 0,
+            pend: 0.0,
+            loud: 0,
+            want: 0.0,
+            gain_db: 0.0,
+            guard_db: 0.0,
+            target: 1.0,
+            out: Smooth::new(1.0, 2.0),
+            detect: per_frame(300.0),
+            up: per_frame(600.0),
+            down: per_frame(500.0),
+        }
+    }
+
+    /// A new microphone session or other settings in front of the AGC: the noise floor is learned
+    /// again from the next frame, the voice level is kept.
+    pub fn restart(&mut self) {
+        (self.floor_db, self.quiet, self.gap, self.run, self.pend) = (0.0, 30, 0.0, 0, 0.0);
+    }
+
+    /// Once per frame, before its samples: mean square of the frame as the gate let it through,
+    /// and before the gate.
+    pub fn frame(&mut self, power: f32, before_gate: f32) {
+        let level = 10.0 * (power + 1e-12).log10();
+        let raw = 10.0 * (before_gate + 1e-12).log10();
+        // the microphone's own noise floor, seen before the gate (behind it pauses are digital
+        // silence): follows quieter frames at once, creeps up 2 dB/s
+        self.floor_db = raw.min(self.floor_db + 0.02);
+        // a laugh counts only as loud as the guard lets it out; a whole second that loud is a new
+        // level (system volume turned up, another microphone) and counts in full
+        let burst = if self.loud < 100 { 10f32.powf((AGC_TARGET + AGC_BURST - self.gain_db) / 10.0) } else { f32::MAX };
+        // sound: clearly above the microphone's noise before the gate (a gate's hold time and closing
+        // tail only carry that noise, so they never count) and let through by the gate
+        if raw > self.floor_db + 10.0 && level > -65.0 {
+            self.run += 1;
+            if self.run < AGC_RUN {
+                self.pend += power.min(burst);
+            } else {
+                if self.run == AGC_RUN {
+                    // a gap between words counts like in any loudness reading, once the voice goes on
+                    // within 300 ms; a longer pause is left out
+                    if self.quiet > 0 && self.quiet < 30 {
+                        self.mix(self.gap / self.quiet as f32, self.quiet);
+                    }
+                    self.mix(self.pend / (AGC_RUN - 1) as f32, AGC_RUN - 1);
+                    (self.quiet, self.gap, self.pend) = (0, 0.0, 0.0);
+                }
+                self.mix(power.min(burst), 1);
+                self.want = (AGC_TARGET - 10.0 * self.ms.log10()).clamp(-20.0, 15.0);
+                self.loud = if level > AGC_TARGET + AGC_BURST - self.gain_db { self.loud + 1 } else { 0 };
+            }
+        } else {
+            // shorter than a syllable: a click or a knock, it counts as part of the gap without its power
+            if self.run < AGC_RUN {
+                self.quiet += self.run;
+            }
+            (self.run, self.pend) = (0, 0.0);
+            self.quiet = self.quiet.saturating_add(1);
+            if self.quiet < 30 {
+                self.gap += power;
+            }
+        }
+        // keeps gliding in pauses, but only toward what the voice asked for
+        self.gain_db += (self.want - self.gain_db) * if self.want < self.gain_db { self.down } else { self.up };
+        // given back at 30 dB/s
+        self.guard_db = (AGC_TARGET + AGC_BURST - level - self.gain_db).min(self.guard_db + 0.3).min(0.0);
+        self.target = 10f32.powf((self.gain_db + self.guard_db) / 20.0);
+    }
+
+    /// `n` frames of mean square `p` into the 300 ms loudness reading
+    fn mix(&mut self, p: f32, n: u32) {
+        let keep = (1.0 - self.detect).powi(n as i32);
+        // a reading of pure silence would be 0; never let it reach the log
+        self.ms = (self.ms * keep + p * (1.0 - keep)).max(1e-10);
     }
 
     #[inline]
-    pub fn gain(&mut self, x: f32) -> f32 {
-        self.ms += (x * x - self.ms) * self.detect;
-        let level = 10.0 * (self.ms + 1e-12).log10();
-        if level > self.floor {
-            let want = (self.target - level).clamp(self.max_down, self.max_up);
-            let k = if want < self.gain_db { self.down } else { self.up };
-            self.gain_db += (want - self.gain_db) * k;
-        }
-        10f32.powf(self.gain_db / 20.0)
+    pub fn gain(&mut self) -> f32 {
+        self.out.next(self.target)
     }
 }
 
@@ -560,7 +677,7 @@ mod tests {
 
     #[test]
     fn presets_are_finite_and_flat_is_identity() {
-        for i in 0..4 {
+        for i in 0..VOICE_PRESETS.len() as u32 {
             let mut c = voice_preset(i);
             let g = sine_gain(|x| run5(&mut c, x), 1000.0);
             assert!(g.is_finite() && g > 0.4 && g < 3.0, "voice {i}: {g}");
@@ -708,6 +825,31 @@ mod tests {
     }
 
     #[test]
+    fn podcast_compresses_gently() {
+        let spread = |mut c: Leveler| {
+            let mut level = |amp: f32| {
+                let (mut sum, mut n) = (0f32, 0);
+                for i in 0..48000 {
+                    let x = speechy(amp, i);
+                    let y = x * c.gain(x);
+                    if i > 24000 && (i / 4800) % 2 == 0 && i % 4800 > 960 {
+                        sum += y * y;
+                        n += 1;
+                    }
+                }
+                10.0 * (sum / n as f32).log10()
+            };
+            let quiet = level(0.05);
+            level(0.2) - quiet
+        };
+        let (podcast, broadcast) = (spread(Leveler::podcast()), spread(Leveler::broadcast()));
+        eprintln!("12 dB in: podcast {podcast:.1} dB out, broadcast {broadcast:.1} dB out");
+        assert!((4.0..8.0).contains(&podcast), "podcast {podcast:.1} dB");
+        assert!(podcast > broadcast + 2.0, "podcast must stay lighter than broadcast");
+        assert!(voice_comp(4).is_some() && voice_comp(3).is_some() && voice_comp(0).is_none() && voice_comp(5).is_none());
+    }
+
+    #[test]
     fn de_esser_tames_sibilants_only() {
         let run = |strength: u32, freq: f32| {
             let mut d = DeEsser::new(strength);
@@ -730,15 +872,26 @@ mod tests {
             let mut c = voice_preset(i);
             20.0 * sine_gain(|x| run5(&mut c, x), f).log10()
         };
-        let (natural, warm, radio, broadcast) = (0, 1, 2, 3);
-        assert!(db(warm, 180.0) - db(natural, 180.0) > 4.0, "warm body");
-        assert!(db(natural, 9000.0) - db(warm, 9000.0) > 4.0, "warm darker");
+        let (natural, warm, radio, broadcast, podcast, laptop) = (0, 1, 2, 3, 4, 5);
+        assert!(db(warm, 150.0) - db(natural, 150.0) > 3.0, "warm body");
+        assert!(db(natural, 10_000.0) - db(warm, 10_000.0) > 2.5, "warm softer");
+        assert!(db(natural, 5000.0) - db(warm, 5000.0) < 2.5, "warm not dull");
         assert!(db(natural, 150.0) - db(radio, 150.0) > 15.0, "radio low cut");
         assert!(db(natural, 7000.0) - db(radio, 7000.0) > 15.0, "radio high cut");
         assert!(db(broadcast, 4000.0) - db(natural, 4000.0) > 5.0, "broadcast presence");
         assert!(db(natural, 350.0) - db(broadcast, 350.0) > 2.5, "broadcast mud cut");
-        assert!(db(broadcast, 120.0) - db(natural, 120.0) > 5.0, "broadcast proximity bass");
-        for i in 0..4 {
+        assert!(db(broadcast, 120.0) - db(natural, 120.0) > 4.0, "broadcast proximity bass");
+        assert!(db(podcast, 120.0) - db(natural, 120.0) > 3.0, "podcast full body");
+        assert!(db(podcast, 3800.0) - db(natural, 3800.0) > 2.0, "podcast presence");
+        assert!(db(natural, 450.0) - db(podcast, 450.0) > 1.0, "podcast box dip");
+        assert!(db(podcast, 10_000.0) - db(natural, 10_000.0) > 1.0, "podcast air");
+        assert!(db(broadcast, 4000.0) - db(podcast, 4000.0) > 2.5, "podcast less edgy than broadcast");
+        assert!(db(podcast, 4000.0) - db(warm, 4000.0) > 3.0, "podcast clearer than warm");
+        assert!(db(natural, 60.0) - db(laptop, 60.0) > 5.0, "laptop rumble cut");
+        assert!(db(natural, 350.0) - db(laptop, 350.0) > 2.5, "laptop box cut");
+        assert!(db(laptop, 2200.0) - db(natural, 2200.0) > 3.0, "laptop speech band");
+        assert!(db(natural, 6500.0) - db(laptop, 6500.0) > 1.5, "laptop case resonance");
+        for i in 0..VOICE_PRESETS.len() as u32 {
             assert!(db(i, 1000.0).abs() < 7.0, "preset {i} keeps the voice band level");
         }
     }
@@ -836,35 +989,110 @@ mod tests {
         }
     }
 
+    fn frame_db(x: &[f32]) -> f32 {
+        10.0 * (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32 + 1e-12).log10()
+    }
+
+    /// Runs the AGC the way the microphone chain does, frame by frame.
+    fn agc_frames(x: &[f32]) -> Vec<f32> {
+        let mut agc = Agc::voice();
+        let mut y = Vec::with_capacity(x.len());
+        for frame in x.as_chunks::<480>().0 {
+            let p = frame.iter().map(|v| v * v).sum::<f32>() / 480.0;
+            agc.frame(p, p);
+            y.extend(frame.iter().map(|v| v * agc.gain()));
+        }
+        y
+    }
+
     #[test]
     fn agc_brings_quiet_and_loud_speech_to_the_target_without_overload() {
-        let rms_db = |amp: f32| {
-            let mut agc = Agc::voice();
-            let mut lim = Limiter::new(-3.0, 80.0);
-            let (mut sum, mut n, mut peak) = (0f64, 0usize, 0f32);
-            for i in 0..(48_000 * 8) {
-                let x = speechy(amp, i);
-                let (y, _) = lim.run(x * agc.gain(x), 0.0);
-                if i > 48_000 * 6 {
-                    sum += (y * y) as f64;
-                    n += 1;
-                    peak = peak.max(y.abs());
-                }
-            }
-            // speechy() is silent half the time, so the voiced RMS is 3 dB above the average
-            (10.0 * (sum / n as f64).log10() as f32 + 3.0, 20.0 * peak.log10())
-        };
-        for amp in [0.02, 0.1, 0.6, 0.95] {
-            let (rms, peak) = rms_db(amp);
-            assert!((-27.0..=-19.0).contains(&rms), "amp {amp}: rms {rms} dB");
-            assert!(peak <= -3.0 + 0.01, "amp {amp}: peak {peak} dB");
+        // 0.03 needs 13.5 dB, close to the 15 dB the AGC may add
+        for amp in [0.03, 0.1, 0.6, 0.95] {
+            let x: Vec<f32> = (0..48_000 * 8).map(|i| speechy(amp, i)).collect();
+            let y = agc_frames(&x);
+            // the 100 ms gaps of speechy() count, as in any loudness reading
+            let level = frame_db(&y[48_000 * 6..]);
+            let peak = 20.0 * y[48_000 * 6..].iter().fold(0f32, |m, v| m.max(v.abs())).log10();
+            assert!((level - AGC_TARGET).abs() < 1.5, "amp {amp}: {level:.1} dBFS");
+            assert!(peak < -12.0, "amp {amp}: peak {peak:.1} dBFS, the limiter should have nothing to do");
         }
-        // silence stays silent: no boost while nobody speaks
-        let mut agc = Agc::voice();
-        for _ in 0..(48_000 * 3) {
-            agc.gain(0.0005);
+    }
+
+    #[test]
+    fn agc_does_not_creep_up_in_pauses() {
+        // 8 s of talking, 3 s of room noise only, then talking again: the next word must not start louder
+        let mut rng = 3u32;
+        let x: Vec<f32> = (0..48_000 * 13)
+            .map(|i| {
+                rng = rng.wrapping_mul(1664525).wrapping_add(1013904223);
+                let noise = 0.0005 * ((rng >> 8) as f32 / (1u32 << 24) as f32 * 2.0 - 1.0);
+                if (48_000 * 8..48_000 * 11).contains(&i) { noise } else { speechy(0.03, i) + noise }
+            })
+            .collect();
+        let speech = |f: usize| !(800..1100).contains(&f) && (f / 10).is_multiple_of(2);
+        let y = agc_frames(&x);
+        let loudest = |from: usize, to: usize| (from..to).filter(|&f| speech(f)).map(|f| frame_db(&y[f * 480..(f + 1) * 480])).fold(-200f32, f32::max);
+        let (before, after) = (loudest(700, 800), loudest(1100, 1130));
+        assert!(after - before < 0.5, "first word after the pause {:.1} dB louder", after - before);
+    }
+
+    #[test]
+    fn agc_ignores_what_the_gate_shuts_out() {
+        // talking over room noise at -55 dBFS, then a 3 s pause with a few single clicks, then talking
+        // again; the gate lets each click, its hold time and the noise in it through, the next word
+        // must still not start louder. (Steady typing that passes the gate reads like chopped speech
+        // to any level control, noise suppression is the tool for that.)
+        let mut rng = 11u32;
+        let x: Vec<f32> = (0..48_000 * 13)
+            .map(|i| {
+                rng = rng.wrapping_mul(1664525).wrapping_add(1013904223);
+                let noise = 0.0031 * ((rng >> 8) as f32 / (1u32 << 24) as f32 * 2.0 - 1.0);
+                let ph = i % 43_200;
+                let click = if ph < 192 { 0.3 * (-(ph as f32) / 40.0).exp() * ((rng >> 9) as f32 / (1u32 << 23) as f32 - 1.0) } else { 0.0 };
+                if (48_000 * 8..48_000 * 11).contains(&i) { noise + click } else { speechy(0.1, i) + noise }
+            })
+            .collect();
+        let (mut gate, mut agc) = (Gate::new(), Agc::voice());
+        let mut y = Vec::with_capacity(x.len());
+        for frame in x.as_chunks::<480>().0 {
+            let gated: Vec<f32> = frame.iter().map(|&v| gate.run(v)).collect();
+            let p = |v: &[f32]| v.iter().map(|s| s * s).sum::<f32>() / 480.0;
+            agc.frame(p(&gated), p(frame));
+            y.extend(gated.iter().map(|v| v * agc.gain()));
         }
-        assert!(agc.gain(0.0005) < 1.01);
+        let speech = |f: usize| !(800..1100).contains(&f) && (f / 10).is_multiple_of(2);
+        let loudest = |from: usize, to: usize| (from..to).filter(|&f| speech(f)).map(|f| frame_db(&y[f * 480..(f + 1) * 480])).fold(-200f32, f32::max);
+        let (before, after) = (loudest(700, 800), loudest(1100, 1130));
+        assert!(after - before < 1.0, "first word after typing {:.1} dB louder", after - before);
+    }
+
+    #[test]
+    fn agc_learns_a_new_level_but_not_a_laugh() {
+        let level_at = |y: &[f32], from_s: usize, to_s: usize| frame_db(&y[from_s * 48_000..to_s * 48_000]);
+        // gain slider from 30 % to 200 %: 30 dB more, learned again within 6 s (the guard caps it meanwhile)
+        let x: Vec<f32> = (0..48_000 * 14).map(|i| speechy(if i < 48_000 * 6 { 0.03 } else { 0.9 }, i)).collect();
+        let y = agc_frames(&x);
+        let after = level_at(&y, 12, 14);
+        assert!((after - AGC_TARGET).abs() < 2.0, "new level not learned: {after:.1} dBFS");
+        // a 0.6 s laugh 16 dB louder: the voice after it stays within 3 dB (the old AGC dropped it 5 dB and more)
+        let x: Vec<f32> = (0..48_000 * 12).map(|i| speechy(if (48_000 * 6..48_000 * 6 + 28_800).contains(&i) { 0.19 } else { 0.03 }, i)).collect();
+        let y = agc_frames(&x);
+        let (before, after) = (level_at(&y, 4, 6), level_at(&y, 7, 9));
+        assert!((after - before).abs() < 3.0, "a laugh moved the level: {before:.1} -> {after:.1} dBFS");
+    }
+
+    #[test]
+    fn agc_catches_a_shout_within_its_frame() {
+        // settled on normal speech, then suddenly 20 dB louder
+        let x: Vec<f32> = (0..48_000 * 6).map(|i| speechy(if i < 48_000 * 5 { 0.03 } else { 0.3 }, i)).collect();
+        let y = agc_frames(&x);
+        // the first frame of the shout still glides down for 2 ms, the limiter takes that one
+        let rest = &y[48_000 * 5 + 480..];
+        let worst = rest.as_chunks::<480>().0.iter().map(|c| frame_db(c)).fold(-200f32, f32::max);
+        let peak = 20.0 * rest.iter().fold(0f32, |m, v| m.max(v.abs())).log10();
+        assert!(worst < AGC_TARGET + AGC_BURST + 1.0, "shout reaches {worst:.1} dBFS");
+        assert!(peak < -6.0, "shout peaks at {peak:.1} dBFS");
     }
 
     #[test]

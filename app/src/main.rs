@@ -51,7 +51,7 @@ fn core_binary() -> Option<PathBuf> {
 }
 
 /// Must match STATE_PROTO in the core.
-const STATE_PROTO: u64 = 5;
+const STATE_PROTO: u64 = 6;
 
 fn age(path: &std::path::Path) -> Option<std::time::Duration> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()?.elapsed().ok()
