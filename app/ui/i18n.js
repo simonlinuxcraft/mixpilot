@@ -150,6 +150,7 @@ const EN = {
   'Mikrofon stumm': 'Mute microphone',
   'aktiv': 'active',
   'Mikrofon aus': 'Microphone off',
+  'kein Mikrofon': 'No microphone',
   'Mixpilot Mikrofon ist dein Standard-Mikrofon. Apps bekommen automatisch die bearbeitete Stimme.': 'Mixpilot Microphone is your default microphone. Apps get your processed voice automatically.',
   'Apps nutzen gerade: {0}. Setze Mixpilot als Standard oder wähle in Discord und Co. "Mixpilot Mikrofon".': 'Apps currently use: {0}. Set Mixpilot as default or pick "Mixpilot Microphone" in Discord and similar apps.',
   'unbekannt': 'unknown',

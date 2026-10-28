@@ -1015,7 +1015,7 @@ async function tick() {
   micInLevel = lv.mic_in >= 0 ? decay(micInLevel, frac(lv.mic_in)) : 0;
   setMicMeter(micLevel);
   setMicInMeter(micInLevel);
-  $('mic-state').textContent = cfg.mic.mute ? t('stumm') : !s.mic_active ? t('Mikrofon aus') : t('aktiv');
+  $('mic-state').textContent = cfg.mic.mute ? t('stumm') : !s.mic_active ? (devices.sources.length ? t('Mikrofon aus') : t('kein Mikrofon')) : t('aktiv');
   $('mic-state').disabled = !cfg.mic.mute;
   paintEvents(s.events || []);
   apps = s.apps || [];

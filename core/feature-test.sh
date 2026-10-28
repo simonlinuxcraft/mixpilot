@@ -304,6 +304,16 @@ pactl unload-module "$ODD"
 sleep 0.5
 check "unplugged default leaves the list and the default" "$(devices "'0070' not in n and d['default_sink'] not in ('', '0070')")"
 
+echo "-- no microphone"
+# with every source gone WirePlumber would hand the capture stream an output's monitor: the mix as an echo
+timeout 5 pw-record --target mixpilot_mic "$W/hold.wav" >/dev/null 2>&1 &
+HOLD=$!
+sleep 1
+for m in $(pactl list short modules | awk '/module-remap-source/ {print $1}'); do pactl unload-module "$m"; done
+sleep 1.5
+check "last microphone gone: capture closed, no echo of the output" "$(pw-link -l | grep -q '|-> mixpilot_mic_in:' && echo "linked: $(pw-link -l | grep -B1 '|-> mixpilot_mic_in:' | head -2 | tr '\n' ' ')" || echo ok)"
+wait $HOLD
+
 echo "-- shutdown"
 kill $MEDIA; MEDIA=
 kill -TERM $D; wait $D; rc=$?; D=

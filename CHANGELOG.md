@@ -8,6 +8,7 @@
 - Warm rolls off the top more gently, from 8 kHz instead of 6 kHz, so it sounds soft instead of muffled. Broadcast lifts 120 Hz by 5 dB instead of 7, so deep voices no longer boom
 - A muted microphone is silent from the very first moment. After a restart of the audio core, or when you muted while no app was listening, the next app that opened the microphone still got about 80 ms of your voice
 - Setting the input back to "System default" after picking a fixed microphone works again. Mixpilot kept recording the old device until it was restarted
+- Without any microphone, for example when the only headset is unplugged during a call, the Mixpilot microphone goes quiet and the window says "No microphone". Before, the system handed it the sound output instead, so the others heard the game and their own voices coming back
 
 ## 0.0.6 - Easier for everyone
 

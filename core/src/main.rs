@@ -1217,7 +1217,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             mic_wait.set(RETRY_TICKS);
         }
         mic_wait.set(mic_wait.get().saturating_sub(1));
-        let wanted = !src_on.borrow().is_empty() || rcfg.borrow().mic.monitor || fresh(&mic_test, 3);
+        // without a real microphone WirePlumber hands the capture stream an output's monitor, which
+        // would put the whole mix into the call as an echo
+        let has_source = devs.borrow().values().any(|d| !d.sink && !d.name.starts_with("mixpilot"));
+        if mic_on.get() && !has_source {
+            let _ = mic.disconnect();
+            lock(&mic_out).clear();
+            mic_on.set(false);
+            event(&ev, "mic_paused", &[]);
+        }
+        let wanted = has_source && (!src_on.borrow().is_empty() || rcfg.borrow().mic.monitor || fresh(&mic_test, 3));
         if wanted {
             mic_idle.set(0);
             if !mic_on.get() && mic_wait.get() == 0 {
