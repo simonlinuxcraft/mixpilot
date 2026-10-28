@@ -766,7 +766,12 @@ function buildMic() {
   hk.addEventListener('click', () => hotkeyCall('change_hotkey'));
   refreshHotkey();
   $('mic-state').addEventListener('click', async () => {
-    await invoke('unmute_mic').catch(showError);
+    try {
+      await invoke('unmute_mic');
+    } catch (e) {
+      // still muted on disk: showing "active" would be a lie
+      return showError(e);
+    }
     cfg.mic.mute = false;
     paintAll();
   });

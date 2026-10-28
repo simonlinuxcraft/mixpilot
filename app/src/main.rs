@@ -912,24 +912,25 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
-fn set_mic_mute(f: impl FnOnce(bool) -> bool) {
-    let _ = update_config(|c| {
+fn set_mic_mute(f: impl FnOnce(bool) -> bool) -> Result<(), String> {
+    update_config(|c| {
         if !c["mic"].is_object() {
             c["mic"] = serde_json::json!({});
         }
         let now = c["mic"]["mute"].as_bool().unwrap_or(false);
         c["mic"]["mute"] = Value::Bool(f(now));
-    });
+    })
+    .inspect_err(|e| eprintln!("mixpilot: microphone mute: {e}"))
 }
 
 fn toggle_mic_mute() {
-    set_mic_mute(|on| !on);
+    let _ = set_mic_mute(|on| !on);
 }
 
 /// The window's way out of a mute when there is neither a tray nor a push-to-mute key.
 #[tauri::command]
-fn unmute_mic() {
-    set_mic_mute(|_| false);
+fn unmute_mic() -> Result<(), String> {
+    set_mic_mute(|_| false)
 }
 
 #[tauri::command]
@@ -975,7 +976,9 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             let on = auto2.is_checked().unwrap_or(true);
             let _ = update_config(|c| c["auto"] = Value::Bool(on));
         }
-        "mute" => set_mic_mute(|_| mute2.is_checked().unwrap_or(false)),
+        "mute" => {
+            let _ = set_mic_mute(|_| mute2.is_checked().unwrap_or(false));
+        }
         "quit" => quit_app(app.clone()),
         _ => {}
     })
