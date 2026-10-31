@@ -183,6 +183,43 @@ struct Mix {
     leveler: Option<Leveler>,
     lev_mode: u32,
     limiter: Limiter,
+    backlog: [Backlog; N],
+    /// last sample of each channel, and its fade-in after an underrun
+    held: [(f32, f32); N],
+    live: [f32; N],
+}
+
+/// App audio a channel holds beyond what the next cycle takes. A stall or a device switch can
+/// leave up to three cycles of it, and since the apps then write as much as the output reads, it
+/// would stay as delay for good.
+struct Backlog {
+    min: usize,
+    cycles: u32,
+}
+
+impl Default for Backlog {
+    fn default() -> Self {
+        Self { min: usize::MAX, cycles: 0 }
+    }
+}
+
+impl Backlog {
+    /// Once per output cycle, before `frames` stereo frames are taken from `ring`.
+    fn trim(&mut self, ring: &mut VecDeque<f32>, frames: usize) {
+        // more than three cycles is a backlog, not a buffer
+        let cap = frames * 2 * 3;
+        if ring.len() > cap {
+            ring.drain(..ring.len() - cap);
+        }
+        self.min = self.min.min(ring.len().saturating_sub(frames * 2));
+        self.cycles += 1;
+        if self.cycles == 100 {
+            // what never drained in 100 cycles is delay; a little stays for jitter, pairs stay whole
+            let n = self.min.saturating_sub(256) & !1;
+            ring.drain(..n);
+            *self = Self::default();
+        }
+    }
 }
 
 impl Mix {
@@ -197,6 +234,9 @@ impl Mix {
             leveler: None,
             lev_mode: 0,
             limiter: Limiter::new(-1.0, 120.0),
+            backlog: Default::default(),
+            held: [(0.0, 0.0); N],
+            live: [1.0; N],
         }
     }
 
@@ -783,13 +823,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let monitor = p.monitor.load(Relaxed);
             let targets: [f32; N] = std::array::from_fn(|i| load(&p.gain[i]));
             let mut locked: [_; N] = std::array::from_fn(|i| lock(&out_rings[i]));
-            // keep app audio at most ~3 cycles behind; anything older is a backlog, not a buffer
-            for ring in locked.iter_mut() {
-                let cap = frames * 2 * 3;
-                if ring.len() > cap {
-                    let n = ring.len() - cap;
-                    ring.drain(..n);
-                }
+            for (b, ring) in mix.backlog.iter_mut().zip(locked.iter_mut()) {
+                b.trim(ring, frames);
             }
             let mut mon = lock(&mon_ring);
             let mon_play = if monitor {
@@ -806,17 +841,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut chat = 0f32;
                 for c in 0..N {
                     let g = mix.gains[c].next(targets[c]);
-                    // an underrun plays silence for that channel; drift correction (resampling) only if dropouts show up
-                    if locked[c].len() >= 2 {
-                        let a = sanitize(locked[c].pop_front().unwrap());
-                        let b = sanitize(locked[c].pop_front().unwrap());
-                        if c == 1 && targets[1] > 0.0 {
-                            chat = a.abs().max(b.abs());
-                        }
-                        // flat bands are skipped, a flat preset costs nothing
-                        let [el, er] = &mut mix.ch_eq[c];
-                        ch[c] = (el.run(a * g), er.run(b * g));
+                    // drift correction (resampling) only if dropouts show up
+                    let (a, b) = if locked[c].len() >= 2 {
+                        let k = mix.live[c];
+                        mix.live[c] += (1.0 - k) * 0.01;
+                        (sanitize(locked[c].pop_front().unwrap()) * k, sanitize(locked[c].pop_front().unwrap()) * k)
+                    } else {
+                        // an underrun: the last sample dies away within a millisecond and the sound
+                        // fades back in over two, instead of two hard steps
+                        mix.live[c] = 0.0;
+                        (mix.held[c].0 * 0.98, mix.held[c].1 * 0.98)
+                    };
+                    mix.held[c] = (a, b);
+                    if c == 1 && targets[1] > 0.0 {
+                        chat = a.abs().max(b.abs());
                     }
+                    // flat bands are skipped, a flat preset costs nothing
+                    let [el, er] = &mut mix.ch_eq[c];
+                    ch[c] = (el.run(a * g), er.run(b * g));
                 }
                 // someone talks in Chat: Game, Media and Music step back by 12 dB, Aux stays
                 let duck = mix.ducker.run(chat, ducking);
@@ -1501,6 +1543,24 @@ mod tests {
             }
         }
         assert_eq!(el.extra, 0, "headroom grew to {} samples", el.extra);
+    }
+
+    #[test]
+    fn backlog_drains_left_over_delay() {
+        let q = 1024;
+        let run = |start: usize| {
+            let (mut b, mut ring) = (super::Backlog::default(), VecDeque::from(vec![0.0; start]));
+            for _ in 0..200 {
+                b.trim(&mut ring, q);
+                ring.drain(..q * 2);
+                ring.extend(std::iter::repeat_n(0.0, q * 2));
+            }
+            ring.len()
+        };
+        // a stall left three cycles; afterwards the apps write exactly what the output reads
+        assert_eq!(run(q * 2 * 3), q * 2 + 256);
+        // the usual one cycle is left alone
+        assert_eq!(run(q * 2), q * 2);
     }
 
     #[test]
