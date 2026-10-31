@@ -703,7 +703,8 @@ fn system_info() -> String {
 /// The end of the core log, reaching into the previous run when this one has only just started.
 fn core_log_tail(lines: usize) -> String {
     let dir = env_dir("XDG_STATE_HOME", ".local/state").join("mixpilot");
-    let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap_or_default();
+    // PipeWire messages in the log are not always valid UTF-8; one bad byte must not empty the report
+    let read = |name: &str| std::fs::read(dir.join(name)).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
     let text = read("core.log.1") + &read("core.log");
     let all: Vec<&str> = text.lines().collect();
     all[all.len().saturating_sub(lines)..].join("\n")
@@ -923,8 +924,9 @@ fn tray_available() -> bool {
     bus.method_call("org.freedesktop.DBus", "NameHasOwner", ("org.kde.StatusNotifierWatcher",)).map(|(b,): (bool,)| b).unwrap_or(true)
 }
 
-/// Ends Mixpilot completely: the core stops and apps play on their normal device again.
-#[tauri::command]
+/// Ends Mixpilot completely: the core stops and apps play on their normal device again. Off the
+/// main thread: stopping the core can take seconds, the window and the tray must not freeze meanwhile.
+#[tauri::command(async)]
 fn quit_app(app: AppHandle) {
     {
         let _start = STARTING.lock().unwrap_or_else(|e| e.into_inner());
@@ -995,14 +997,24 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 let _ = open_bug_report(a).await;
             });
         }
+        // GTK already flipped the check mark; if the settings cannot be written, flip it back
         "auto" => {
             let on = auto2.is_checked().unwrap_or(true);
-            let _ = update_config(|c| c["auto"] = Value::Bool(on));
+            if let Err(e) = update_config(|c| c["auto"] = Value::Bool(on)) {
+                eprintln!("mixpilot: tray: {e}");
+                let _ = auto2.set_checked(!on);
+            }
         }
         "mute" => {
-            let _ = set_mic_mute(|_| mute2.is_checked().unwrap_or(false));
+            let on = mute2.is_checked().unwrap_or(false);
+            if set_mic_mute(|_| on).is_err() {
+                let _ = mute2.set_checked(!on);
+            }
         }
-        "quit" => quit_app(app.clone()),
+        "quit" => {
+            let a = app.clone();
+            std::thread::spawn(move || quit_app(a));
+        }
         _ => {}
     })
     .build(app)?;
