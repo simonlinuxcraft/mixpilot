@@ -540,6 +540,9 @@ impl Envelope {
 }
 
 const LOOKAHEAD: usize = 48; // 1 ms
+/// The gain follows the lowest need of the last 25 to 50 ms: rising between the peaks of a bass wave
+/// would ripple at twice its frequency and distort it.
+const HOLD: usize = 1200;
 
 /// Stereo peak limiter with 1 ms lookahead: the gain is already down when a peak leaves the delay,
 /// so peaks are shaped smoothly instead of being clipped. A final clamp is only a safety net.
@@ -548,8 +551,10 @@ pub struct Limiter {
     gain: f32,
     attack: f32,
     release: f32,
-    target: f32,
-    hold: usize,
+    /// lowest gain needed in the current and the previous HOLD block
+    cur: f32,
+    prev: f32,
+    n: usize,
     delay: [(f32, f32); LOOKAHEAD],
     pos: usize,
 }
@@ -562,8 +567,9 @@ impl Limiter {
             // reaches the target well within the 48-sample lookahead, but over ~10 samples instead of one
             attack: coef(0.1),
             release: coef(release_ms),
-            target: 1.0,
-            hold: 0,
+            cur: 1.0,
+            prev: 1.0,
+            n: 0,
             delay: [(0.0, 0.0); LOOKAHEAD],
             pos: 0,
         }
@@ -574,19 +580,16 @@ impl Limiter {
         let (l, r) = (sanitize(l), sanitize(r));
         let peak = l.abs().max(r.abs());
         let need = if peak > self.ceiling { self.ceiling / peak } else { 1.0 };
-        // the lowest gain needed by anything still inside the delay line
-        if need <= self.target {
-            self.target = need;
-            self.hold = LOOKAHEAD;
-        } else if self.hold > 0 {
-            self.hold -= 1;
-        } else {
-            self.target = need;
+        self.cur = self.cur.min(need);
+        self.n += 1;
+        if self.n == HOLD {
+            (self.prev, self.cur, self.n) = (self.cur, 1.0, 0);
         }
-        let k = if self.target < self.gain { self.attack } else { self.release };
-        self.gain += (self.target - self.gain) * k;
-        if (self.gain - self.target).abs() < 1e-4 {
-            self.gain = self.target;
+        let target = self.cur.min(self.prev);
+        let k = if target < self.gain { self.attack } else { self.release };
+        self.gain += (target - self.gain) * k;
+        if (self.gain - target).abs() < 1e-4 {
+            self.gain = target;
         }
         let (dl, dr) = std::mem::replace(&mut self.delay[self.pos], (l, r));
         self.pos = (self.pos + 1) % LOOKAHEAD;
@@ -992,6 +995,22 @@ mod tests {
             }
         }
         assert_eq!(flat_tops, 0, "{flat_tops} clipped peaks");
+    }
+
+    #[test]
+    fn limiter_holds_through_a_bass_wave() {
+        // 30 Hz, 6 dB over the ceiling: a gain that rises between the peaks ripples and distorts the bass
+        let mut lim = Limiter::new(-1.0, 120.0);
+        let x: Vec<f32> = (0..48_000).map(|i| 2.0 * (TAU * 30.0 * i as f32 / RATE).sin()).collect();
+        let (mut lo, mut hi) = (f32::MAX, 0f32);
+        for (i, &v) in x.iter().enumerate() {
+            let (l, _) = lim.run(v, v);
+            if i > 24_000 && x[i - LOOKAHEAD].abs() > 0.2 {
+                let g = l / x[i - LOOKAHEAD];
+                (lo, hi) = (lo.min(g), hi.max(g));
+            }
+        }
+        assert!(hi / lo < 1.001, "gain ripples by {:.1} %", (hi / lo - 1.0) * 100.0);
     }
 
     #[test]
