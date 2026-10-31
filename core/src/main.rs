@@ -31,7 +31,7 @@ use pw::types::ObjectType;
 use spa::pod::{serialize::PodSerializer, Object, Pod, Value};
 
 use config::{index_of, Config, CHANNELS};
-use dsp::{run5, sanitize, Agc, Biquad, Chain5, DeEsser, Envelope, Eq10, Gate, Leveler, Limiter, Smooth};
+use dsp::{run5, sanitize, Agc, Biquad, Chain5, DeEsser, Ducker, Eq10, Gate, Leveler, Limiter, Smooth};
 
 /// Two cycles of stereo audio at quantum 8192, the largest PipeWire allows by default. The output
 /// keeps at most three of its own cycles, so latency cannot creep up.
@@ -175,8 +175,7 @@ fn format_pod(channels: u32) -> Vec<u8> {
 /// Output mix state, owned by the output stream's realtime callback.
 struct Mix {
     gains: [Smooth; N],
-    duck: Smooth,
-    duck_env: Envelope,
+    ducker: Ducker,
     ch_eq: [[Eq10; 2]; N],
     bass: [Biquad; 2],
     bass_db: f32,
@@ -190,8 +189,7 @@ impl Mix {
     fn new() -> Self {
         Self {
             gains: [Smooth::new(0.0, 20.0); N],
-            duck: Smooth::new(1.0, 200.0),
-            duck_env: Envelope::new(400.0),
+            ducker: Ducker::new(),
             ch_eq: Default::default(),
             bass: [Biquad::low_shelf(BASS_FREQ, 0.0); 2],
             bass_db: 0.0,
@@ -805,20 +803,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             for f in 0..frames {
                 let mut ch = [(0f32, 0f32); N];
+                let mut chat = 0f32;
                 for c in 0..N {
                     let g = mix.gains[c].next(targets[c]);
                     // an underrun plays silence for that channel; drift correction (resampling) only if dropouts show up
                     if locked[c].len() >= 2 {
-                        let a = sanitize(locked[c].pop_front().unwrap()) * g;
-                        let b = sanitize(locked[c].pop_front().unwrap()) * g;
+                        let a = sanitize(locked[c].pop_front().unwrap());
+                        let b = sanitize(locked[c].pop_front().unwrap());
+                        if c == 1 && targets[1] > 0.0 {
+                            chat = a.abs().max(b.abs());
+                        }
                         // flat bands are skipped, a flat preset costs nothing
                         let [el, er] = &mut mix.ch_eq[c];
-                        ch[c] = (el.run(a), er.run(b));
+                        ch[c] = (el.run(a * g), er.run(b * g));
                     }
                 }
                 // someone talks in Chat: Game, Media and Music step back by 12 dB, Aux stays
-                let talk = mix.duck_env.run(ch[1].0.abs().max(ch[1].1.abs()));
-                let duck = mix.duck.next(if ducking && talk > 0.01 { 0.25 } else { 1.0 });
+                let duck = mix.ducker.run(chat, ducking);
                 let (mut l, mut r) = (0.0f32, 0.0f32);
                 for c in 0..N {
                     let k = if matches!(c, 0 | 2 | 3) { duck } else { 1.0 };

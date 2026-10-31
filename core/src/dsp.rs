@@ -539,6 +539,29 @@ impl Envelope {
     }
 }
 
+/// Gain for the channels that step back while someone talks in Chat: down within 30 ms, so a short
+/// call-out is heard, and back up about half a second after the last word, so pauses between words
+/// do not pump. Fed with the chat before its fader, so a quiet Chat fader still ducks.
+pub struct Ducker {
+    env: Envelope,
+    gain: f32,
+    down: f32,
+    up: f32,
+}
+
+impl Ducker {
+    pub fn new() -> Self {
+        Self { env: Envelope::new(150.0), gain: 1.0, down: coef(30.0), up: coef(250.0) }
+    }
+
+    #[inline]
+    pub fn run(&mut self, chat: f32, on: bool) -> f32 {
+        let want = if on && self.env.run(chat) > 0.01 { 0.25 } else { 1.0 };
+        self.gain += (want - self.gain) * if want < self.gain { self.down } else { self.up };
+        self.gain
+    }
+}
+
 const LOOKAHEAD: usize = 48; // 1 ms
 /// The gain follows the lowest need of the last 25 to 50 ms: rising between the peaks of a bass wave
 /// would ripple at twice its frequency and distort it.
@@ -995,6 +1018,25 @@ mod tests {
             }
         }
         assert_eq!(flat_tops, 0, "{flat_tops} clipped peaks");
+    }
+
+    #[test]
+    fn ducker_is_quick_down_and_holds_between_words() {
+        let mut d = Ducker::new();
+        let talk = |i: usize| 0.2 * (TAU * 200.0 * i as f32 / RATE).sin();
+        let ms = |n: usize| n * 48;
+        // 100 ms into a call-out the game is already at least 10 dB down
+        let g = (0..ms(100)).map(|i| d.run(talk(i), true)).last().unwrap();
+        assert!(g < db_to_gain(-10.0), "{g}");
+        // a 200 ms pause between words keeps it down
+        let g = (0..ms(200)).map(|_| d.run(0.0, true)).last().unwrap();
+        assert!(g < db_to_gain(-10.0), "{g}");
+        // a second after the last word it is back
+        let g = (0..ms(1000)).map(|_| d.run(0.0, true)).last().unwrap();
+        assert!(g > db_to_gain(-0.5), "{g}");
+        // switched off it never ducks
+        let mut d = Ducker::new();
+        assert!((0..ms(500)).all(|i| d.run(talk(i), false) == 1.0));
     }
 
     #[test]

@@ -257,6 +257,10 @@ CHAT=$!
 sleep 1.5
 ducked=$(level "s['levels']['media'][0]")
 check "ducking: Media steps back while Chat talks ($alone -> $ducked)" "$(near "$ducked" "$(python3 -c "print($alone*0.25)")")"
+cfg '{"chat":{"volume":10}}'
+sleep 1
+check "ducking: a quiet Chat fader still ducks" "$(near "$(level "s['levels']['media'][0]")" "$(python3 -c "print($alone*0.25)")")"
+cfg '{"chat":{"volume":100}}'
 cfg '{"ducking":false}'
 sleep 1
 check "ducking off restores Media" "$(near "$(level "s['levels']['media'][0]")" "$alone")"

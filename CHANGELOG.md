@@ -13,6 +13,7 @@
 - If unmuting fails because the settings file cannot be written, the window says so instead of showing the microphone as active
 - Bass, Clarity and the equalizer no longer overdrive the output. A loud song with full bass reached the limiter with up to 17 dB too much and was audibly distorted, however far the system volume was turned down. Each channel now gives up exactly as much level as its boosts add, so the sound stays clean. With strong boosts the channels play quieter than before, turn the channel or the system volume up to match
 - The limiter no longer distorts bass. It let the level rise again between two peaks of a bass wave, which roughened every loud song that reached it. Now it holds still through the whole wave, the distortion on a 30 to 60 Hz bass drops from up to 2 % to well below what anyone can hear
+- Ducking reacts in time. Game, Media and Music are down by 10 dB within 100 ms of someone talking in Chat instead of after almost a second, so a short call-out is heard, and come back about half a second after the last word instead of up to two seconds. It also works when the Chat fader is low, which used to stop it completely
 
 ## 0.0.6 - Easier for everyone
 
