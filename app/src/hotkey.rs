@@ -36,6 +36,8 @@ pub enum Cmd {
 type Reply = Sender<Result<Status, String>>;
 
 static STATUS: Mutex<Status> = Mutex::new(Status { available: false, on: false, trigger: String::new() });
+/// a portal session with our key is open, even while the desktop has no key set for it
+static BOUND: AtomicBool = AtomicBool::new(false);
 static CMDS: OnceLock<Mutex<Sender<(Cmd, Reply)>>> = OnceLock::new();
 
 pub fn status() -> Status {
@@ -65,6 +67,7 @@ pub fn start(restore: bool, on_press: fn()) {
                     restore = st.on;
                 }
                 *st = Status { available: false, on: false, trigger: String::new() };
+                BOUND.store(false, Ordering::SeqCst);
             }
             // a desktop without the portal would otherwise log the same line every minute
             if why != last {
@@ -135,7 +138,8 @@ fn run(rx: &Receiver<(Cmd, Reply)>, restore: bool, on_press: fn()) -> String {
         if let Some((_, props)) = list.iter().find(|(id, _)| id == ID) {
             let trigger = props.get("trigger_description").and_then(|v| v.0.as_str()).unwrap_or_default().to_string();
             let mut st = STATUS.lock().unwrap();
-            st.on = st.on && !trigger.is_empty();
+            // removed and set again in the desktop's settings it works again, so it is on again
+            st.on = BOUND.load(Ordering::SeqCst) && !trigger.is_empty();
             st.trigger = trigger;
         }
         true
@@ -184,6 +188,7 @@ fn bind(c: &Connection, owner: &str, session: &mut Option<String>) -> Result<(),
         0 => {
             let trigger = r.trigger.unwrap_or_default();
             let on = !trigger.is_empty();
+            BOUND.store(true, Ordering::SeqCst);
             *STATUS.lock().unwrap() = Status { available: true, on, trigger };
             if !on {
                 close(c, session);
@@ -208,6 +213,7 @@ fn close(c: &Connection, session: &mut Option<String>) {
     if let Some(s) = session.take() {
         let _: Result<(), _> = c.with_proxy(DEST, s, Duration::from_secs(5)).method_call("org.freedesktop.portal.Session", "Close", ());
     }
+    BOUND.store(false, Ordering::SeqCst);
     let mut st = STATUS.lock().unwrap();
     st.on = false;
 }
@@ -324,6 +330,7 @@ mod tests {
     struct Portal {
         stop: Arc<AtomicBool>,
         press: Arc<AtomicU32>,
+        changes: Arc<Mutex<Vec<String>>>,
         binds: Arc<AtomicU32>,
         app: Arc<Mutex<Option<String>>>,
         thread: Option<std::thread::JoinHandle<()>>,
@@ -332,6 +339,8 @@ mod tests {
         fn start() -> Portal {
             let (stop, press, binds, app) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicU32::new(0)), Arc::new(AtomicU32::new(0)), Arc::new(Mutex::new(None)));
             let (s, p, b, a) = (stop.clone(), press.clone(), binds.clone(), app.clone());
+            let changes = Arc::new(Mutex::new(Vec::<String>::new()));
+            let ch = changes.clone();
             let (ready_tx, ready_rx) = channel();
             let thread = std::thread::spawn(move || {
                 let c = Connection::new_session().unwrap();
@@ -382,10 +391,19 @@ mod tests {
                         let to = a.lock().unwrap().clone().unwrap();
                         let _ = c.send(activated(&to));
                     }
+                    if let Some(t) = ch.lock().unwrap().pop() {
+                        let to = a.lock().unwrap().clone().unwrap();
+                        let _ = c.send(changed(&to, &t));
+                    }
                 }
             });
             ready_rx.recv().unwrap();
-            Portal { stop, press, binds, app, thread: Some(thread) }
+            Portal { stop, press, changes, binds, app, thread: Some(thread) }
+        }
+
+        /// The key as the desktop's settings now show it, "" when it was removed there.
+        fn change(&self, trigger: &str) {
+            self.changes.lock().unwrap().push(trigger.into());
         }
     }
     impl Drop for Portal {
@@ -393,6 +411,15 @@ mod tests {
             self.stop.store(true, Ordering::SeqCst);
             let _ = self.thread.take().map(|t| t.join());
         }
+    }
+
+    fn changed(to: &str, trigger: &str) -> Message {
+        let session = Path::from(format!("{OBJ}/session/x/mixpilot"));
+        let mut props = PropMap::new();
+        props.insert("trigger_description".into(), Variant(Box::new(trigger.to_string())));
+        let mut m = Message::new_signal(OBJ, IFACE, "ShortcutsChanged").unwrap().append2(session, vec![(ID.to_string(), props)]);
+        m.set_destination(Some(to.to_string().into()));
+        m
     }
 
     fn activated(to: &str) -> Message {
@@ -441,5 +468,11 @@ mod tests {
         assert_eq!(portal.binds.load(Ordering::SeqCst), 1);
         portal.press.fetch_add(1, Ordering::SeqCst);
         assert!(until(2000, || PRESSES.load(Ordering::SeqCst) == 2));
+
+        // removed in the desktop's settings, then set again there: the session still holds it
+        portal.change("");
+        assert!(until(2000, || !status().on));
+        portal.change("Ctrl+K");
+        assert!(until(2000, || status().on && status().trigger == "Ctrl+K"), "key set again but shown as off");
     }
 }
