@@ -550,20 +550,43 @@ fn get_master() -> Result<Master, String> {
         return Ok(m.clone());
     }
     let vol = pactl(&["get-sink-volume", &sink])?;
-    let volume = vol
-        .split('/')
-        .nth(1)
-        .and_then(|p| p.trim().trim_end_matches('%').trim().parse().ok())
-        .ok_or("unknown volume format")?;
+    // the loudest channel, like the system's own volume slider
+    let top = channel_volumes(&vol).into_iter().max().ok_or("unknown volume format")?;
+    let volume = ((top * 100 + NORM / 2) / NORM) as u32;
     let mute = pactl(&["get-sink-mute", &sink])?.contains("yes");
     *MASTER.lock().unwrap_or_else(|e| e.into_inner()) = Some((sink, Master { volume, mute }, seen, Instant::now()));
     Ok(Master { volume, mute })
 }
 
+/// 100 % in PulseAudio's raw volume units.
+const NORM: u64 = 65536;
+
+/// Raw volume of each channel from `pactl get-sink-volume`, for example
+/// "Volume: front-left: 65536 / 100% / 0.00 dB,   front-right: 32768 /  50% / -18.06 dB".
+fn channel_volumes(out: &str) -> Vec<u64> {
+    let parts: Vec<&str> = out.split('/').collect();
+    // every channel is "<raw> / <percent> / <dB>", so its raw value ends every second part
+    parts.iter().step_by(2).take(parts.len() / 2).filter_map(|p| p.split_whitespace().last()?.parse().ok()).collect()
+}
+
+/// Raw volumes that put the loudest channel at `percent` and keep the others' balance to it.
+fn scaled(now: &[u64], percent: u32) -> Vec<String> {
+    let want = u64::from(percent.min(150)) * NORM / 100;
+    match now.iter().copied().max() {
+        Some(top) if top > 0 => now.iter().map(|c| (want * c / top).to_string()).collect(),
+        _ => vec![want.to_string()],
+    }
+}
+
 #[tauri::command(async)]
 fn set_master(volume: u32) -> Result<(), String> {
     master_changed();
-    pactl(&["set-sink-volume", &output_sink(), &format!("{}%", volume.min(150))])
+    let sink = output_sink();
+    // a left/right balance set in the system survives the fader
+    let levels = scaled(&pactl(&["get-sink-volume", &sink]).map(|o| channel_volumes(&o)).unwrap_or_default(), volume);
+    let mut args = vec!["set-sink-volume", sink.as_str()];
+    args.extend(levels.iter().map(String::as_str));
+    pactl(&args)
         .map(|_| ())
         .map_err(|e| { eprintln!("mixpilot: pactl: {e}"); "Lautstärke des Ausgabegeräts konnte nicht geändert werden".to_string() })
 }
@@ -1102,6 +1125,17 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn master_keeps_the_balance() {
+        let stereo = "Volume: front-left: 65536 / 100% / 0.00 dB,   front-right: 32768 /  50% / -18.06 dB\n        balance -0.50\n";
+        assert_eq!(super::channel_volumes(stereo), [65536, 32768]);
+        assert_eq!(super::channel_volumes("Volume: mono: 19661 /  30% / -31.37 dB\n"), [19661]);
+        // the loudest channel goes to 30 %, the other keeps half of it
+        assert_eq!(super::scaled(&[65536, 32768], 30), ["19660", "9830"]);
+        assert_eq!(super::scaled(&[0, 0], 30), ["19660"]);
+        assert_eq!(super::scaled(&[], 200), ["98304"]);
+    }
 
     #[test]
     fn config_path_respects_xdg() {

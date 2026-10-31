@@ -400,8 +400,11 @@ function strip(id, label, master) {
   root.append(head, body, value);
 
   const get = () => (master ? masterDev.volume : cfg[id].volume);
+  // while the user moves it the fader leads; otherwise it follows changes from outside (volume keys,
+  // the tray), also when it still has the focus from an earlier click
+  let moved = 0;
+  fader.addEventListener('input', () => (moved = Date.now()));
   if (master) {
-    fader.max = 100;
     fader.addEventListener('pointerdown', () => (masterTouched = Date.now()));
     fader.addEventListener('input', () => { setMaster(Number(fader.value)); paintAll(); });
   } else {
@@ -436,7 +439,9 @@ function strip(id, label, master) {
     root.append(btns, apps);
   }
   painters.push(() => {
-    if (document.activeElement !== fader) fader.value = get();
+    // above 100 % (set with the volume keys) the range grows, so touching it does not cut the volume down
+    if (master) fader.max = Math.max(100, Math.min(150, masterDev.volume));
+    if (Date.now() - moved > 800) fader.value = get();
     const muted = master ? masterDev.mute : cfg[id].mute;
     const level = master ? (masterDev.known ? `${masterDev.volume} %` : t('kein Gerät')) : fdb(cfg[id].volume);
     valueText(fader, muted ? `${level}, ${t('stumm')}` : level);
