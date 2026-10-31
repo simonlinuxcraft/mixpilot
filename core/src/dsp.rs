@@ -273,7 +273,7 @@ impl Leveler {
     /// Returns the linear gain to apply to this sample (stereo-linked: feed the louder side).
     #[inline]
     pub fn gain(&mut self, x: f32) -> f32 {
-        self.ms += (x * x - self.ms) * self.detect;
+        self.ms = flush(self.ms + (x * x - self.ms) * self.detect);
         let level = 10.0 * (self.ms + 1e-12).log10();
         let target = if level < self.floor_db {
             if self.hold {
@@ -322,8 +322,8 @@ impl DeEsser {
     pub fn run(&mut self, x: f32) -> f32 {
         // the band is the input minus its low part, so turning it down never shifts the phase of the rest
         let s = x - self.lp.run(x);
-        self.env_hf = s.abs().max(self.env_hf - self.env_hf * self.fall);
-        self.env_all = x.abs().max(self.env_all - self.env_all * self.fall);
+        self.env_hf = flush(s.abs().max(self.env_hf - self.env_hf * self.fall));
+        self.env_all = flush(x.abs().max(self.env_all - self.env_all * self.fall));
         // the sibilant band may reach `threshold` of the voice before it is pulled down
         let ratio = self.env_hf / (self.env_all + 1e-6);
         let target = if ratio > self.threshold { (self.threshold / ratio).max(self.floor) } else { 1.0 };
@@ -516,7 +516,7 @@ impl Gate {
     #[inline]
     fn track(&mut self, x: f32) {
         let a = x.abs();
-        self.env = if a > self.env { a } else { self.env + (a - self.env) * self.env_rel };
+        self.env = if a > self.env { a } else { flush(self.env + (a - self.env) * self.env_rel) };
         // noise floor: RMS of 50 ms blocks, minimum over the last 40 blocks
         self.block_sum += x * x;
         self.block_n += 1;
@@ -1004,6 +1004,24 @@ mod tests {
         assert!(y.is_finite() && y.abs() < 2.0);
         assert_eq!(sanitize(1e30), 16.0);
         assert_eq!(sanitize(-0.25), -0.25);
+    }
+
+    #[test]
+    fn detectors_settle_to_zero_in_silence() {
+        // stuck denormals cost up to 100x per operation on some CPUs
+        let (mut lev, mut de, mut gate) = (Leveler::podcast(), DeEsser::new(1), Gate::new());
+        for i in 0..48_000 {
+            let x = 0.5 * (i as f32 * 0.1).sin();
+            lev.gain(x);
+            de.run(x);
+            gate.run(x);
+        }
+        for _ in 0..48_000 * 10 {
+            lev.gain(0.0);
+            de.run(0.0);
+            gate.run(0.0);
+        }
+        assert!(lev.ms == 0.0 && de.env_hf == 0.0 && de.env_all == 0.0 && gate.env == 0.0);
     }
 
     #[test]
