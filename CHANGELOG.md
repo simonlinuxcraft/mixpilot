@@ -11,6 +11,7 @@
 - Without any microphone, for example when the only headset is unplugged during a call, the Mixpilot microphone goes quiet and the window says "No microphone". Before, the system handed it the sound output instead, so the others heard the game and their own voices coming back
 - Changing the input device or a short dropout of a USB or Bluetooth microphone no longer adds 10 ms of delay each time to the Mixpilot microphone and to hearing yourself
 - If unmuting fails because the settings file cannot be written, the window says so instead of showing the microphone as active
+- Bass, Clarity and the equalizer no longer overdrive the output. A loud song with full bass reached the limiter with up to 17 dB too much and was audibly distorted, however far the system volume was turned down. Each channel now gives up exactly as much level as its boosts add, so the sound stays clean. With strong boosts the channels play quieter than before, turn the channel or the system volume up to match
 
 ## 0.0.6 - Easier for everyone
 

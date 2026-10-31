@@ -72,6 +72,15 @@ impl Biquad {
         self.z2 = z2;
     }
 
+    /// Magnitude at `freq` in dB.
+    pub fn mag_db(&self, freq: f32) -> f32 {
+        let (s1, c1) = (TAU * freq / RATE).sin_cos();
+        let (s2, c2) = (2.0 * TAU * freq / RATE).sin_cos();
+        let num = (self.b0 + self.b1 * c1 + self.b2 * c2).powi(2) + (self.b1 * s1 + self.b2 * s2).powi(2);
+        let den = (1.0 + self.a1 * c1 + self.a2 * c2).powi(2) + (self.a1 * s1 + self.a2 * s2).powi(2);
+        10.0 * (num / den).log10()
+    }
+
     #[inline]
     pub fn run(&mut self, x: f32) -> f32 {
         let y = self.b0 * x + self.z1;
@@ -166,6 +175,13 @@ impl Eq10 {
         }
         x
     }
+}
+
+/// Linear gain that cancels the largest boost of a filter chain (20 Hz to 20 kHz, 1/12 octave), so
+/// EQ and bass add tone, not level: a +12 dB bass on a full-scale song otherwise lands in the limiter.
+pub fn headroom(chain: &[Biquad]) -> f32 {
+    let peak = (0..120).map(|i| chain.iter().map(|b| b.mag_db(20.0 * 2f32.powf(i as f32 / 12.0))).sum::<f32>()).fold(0.0, f32::max);
+    10f32.powf(-peak / 20.0)
 }
 
 /// One-pole smoother for gains, avoids zipper noise when a fader moves.
@@ -1115,6 +1131,23 @@ mod tests {
             let line = js.lines().find(|l| l.trim_start().starts_with(&format!("{name}: ["))).unwrap_or_else(|| panic!("{name} missing in EQ_BUILTIN of app.js"));
             let ui: Vec<f32> = line[line.find('[').unwrap() + 1..line.find(']').unwrap()].split(',').map(|v| v.trim().parse().unwrap()).collect();
             assert_eq!(ui, bands, "{name} differs between app.js and config.rs");
+        }
+    }
+
+    #[test]
+    fn headroom_cancels_the_largest_boost() {
+        assert_eq!(headroom(&[]), 1.0);
+        assert_eq!(headroom(&[Biquad::peaking(1000.0, -6.0, 1.4)]), 1.0);
+        let shelf = headroom(&[Biquad::low_shelf(100.0, 12.0)]);
+        assert!((shelf - db_to_gain(-12.0)).abs() < 0.01, "{shelf}");
+        // the Music preset plus full bass rises about 16.7 dB around 32 Hz; a full-scale sine there
+        // must come out below 0 dBFS
+        let mut chain: Vec<Biquad> = [4.0, 4.0, 2.0, 0.0, -1.0, -1.0, 0.0, 1.0, 2.0, 2.0].iter().zip(EQ_FREQS).filter(|(g, _)| **g != 0.0).map(|(g, f)| Biquad::peaking(f, *g, 1.4)).collect();
+        chain.push(Biquad::low_shelf(100.0, 12.0));
+        let g = headroom(&chain);
+        for f in [32.0, 45.0, 62.0, 1000.0] {
+            let out = sine_gain(|x| chain.iter_mut().fold(x * g, |y, b| b.run(y)), f);
+            assert!(out <= 1.01, "{f} Hz: {out}");
         }
     }
 

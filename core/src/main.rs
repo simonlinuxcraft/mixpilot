@@ -39,6 +39,10 @@ const RING_MAX: usize = 8192 * 2 * 2;
 /// 1 s of mono microphone audio: two 8192 blocks on top of the reader's slack, see Elastic.
 const MIC_RING_MAX: usize = 48_000;
 const BASS_FREQ: f32 = 100.0;
+
+fn clarity() -> Biquad {
+    Biquad::peaking(3200.0, 3.0, 0.9)
+}
 const FRAME: usize = DenoiseState::FRAME_SIZE;
 /// main loop tick; config polling, level snapshots and reconnects all run on it
 const TICK_MS: u64 = 50;
@@ -83,18 +87,24 @@ fn load(a: &AtomicU32) -> f32 {
 impl Params {
     fn apply(&self, cfg: &Config, night: bool) {
         let (game, chat) = dsp::chatmix(cfg.chatmix);
+        let day_bass = cfg.bass.clamp(0.0, 100.0) * 0.12;
+        let bass_db = if night { 0.0 } else { day_bass };
+        // headroom from the day bass, or night mode would make everything but the bass louder
+        let after_sum = [Biquad::low_shelf(BASS_FREQ, day_bass), if cfg.clarity { clarity() } else { Biquad::identity() }];
         for (i, ch) in cfg.channels().iter().enumerate() {
             let mix = match i {
                 0 => game,
                 1 => chat,
                 _ => 1.0,
             };
-            put(&self.gain[i], if ch.mute { 0.0 } else { dsp::fader_to_gain(ch.volume) * mix });
-            for (a, g) in self.ch_eq[i].iter().zip(cfg.curve(&ch.eq)) {
-                put(a, if g.is_finite() { g.clamp(-12.0, 12.0) } else { 0.0 });
+            let curve = cfg.curve(&ch.eq).map(|g| if g.is_finite() { g.clamp(-12.0, 12.0) } else { 0.0 });
+            let chain: Vec<Biquad> = curve.iter().zip(dsp::EQ_FREQS).filter(|(g, _)| **g != 0.0).map(|(g, f)| Biquad::peaking(f, *g, 1.4)).chain(after_sum).collect();
+            put(&self.gain[i], if ch.mute { 0.0 } else { dsp::fader_to_gain(ch.volume) * mix * dsp::headroom(&chain) });
+            for (a, g) in self.ch_eq[i].iter().zip(curve) {
+                put(a, g);
             }
         }
-        put(&self.bass_db, if night { 0.0 } else { cfg.bass.clamp(0.0, 100.0) * 0.12 });
+        put(&self.bass_db, bass_db);
         self.limiter.store(cfg.limiter, Relaxed);
         self.clarity.store(cfg.clarity, Relaxed);
         let av = if night { 2 } else { index_of(&["off", "soft", "night"], &cfg.auto_volume) };
@@ -185,7 +195,7 @@ impl Mix {
             ch_eq: Default::default(),
             bass: [Biquad::low_shelf(BASS_FREQ, 0.0); 2],
             bass_db: 0.0,
-            clarity: [Biquad::peaking(3200.0, 3.0, 0.9); 2],
+            clarity: [clarity(); 2],
             leveler: None,
             lev_mode: 0,
             limiter: Limiter::new(-1.0, 120.0),
