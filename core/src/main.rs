@@ -59,6 +59,8 @@ struct Params {
     /// per channel the 10 band gains of its preset
     ch_eq: [[AtomicU32; 10]; N],
     bass_db: AtomicU32,
+    /// the bass the channels' headroom was worked out for
+    bass_head: AtomicU32,
     limiter: AtomicBool,
     clarity: AtomicBool,
     auto_volume: AtomicU32,
@@ -105,6 +107,7 @@ impl Params {
             }
         }
         put(&self.bass_db, bass_db);
+        put(&self.bass_head, day_bass);
         self.limiter.store(cfg.limiter, Relaxed);
         self.clarity.store(cfg.clarity, Relaxed);
         let av = if night { 2 } else { index_of(&["off", "soft", "night"], &cfg.auto_volume) };
@@ -179,6 +182,7 @@ struct Mix {
     ch_eq: [[Eq10; 2]; N],
     bass: [Biquad; 2],
     bass_db: f32,
+    bass_head: f32,
     clarity: [Biquad; 2],
     leveler: Option<Leveler>,
     lev_mode: u32,
@@ -216,6 +220,12 @@ impl Backlog {
         if self.cycles == 100 {
             // what never drained in 100 cycles is delay; a little stays for jitter, pairs stay whole
             let n = self.min.saturating_sub(256) & !1;
+            // the first 64 frames after the cut blend in from the audio they replace, so it does not click
+            let fade = 64.min((ring.len() - n) / 2);
+            for k in 0..fade * 2 {
+                let (old, w) = (ring[k], (k / 2) as f32 / fade as f32);
+                ring[n + k] = old + (ring[n + k] - old) * w;
+            }
             ring.drain(..n);
             *self = Self::default();
         }
@@ -230,6 +240,7 @@ impl Mix {
             ch_eq: Default::default(),
             bass: [Biquad::low_shelf(BASS_FREQ, 0.0); 2],
             bass_db: 0.0,
+            bass_head: 0.0,
             clarity: [clarity(); 2],
             leveler: None,
             lev_mode: 0,
@@ -241,21 +252,25 @@ impl Mix {
     }
 
     /// Pick up parameter changes once per buffer; coefficients only change when a value did.
-    fn update(&mut self, p: &Params) {
+    fn update(&mut self, p: &Params, frames: usize) {
         for c in 0..N {
             let gains: [f32; 10] = std::array::from_fn(|i| load(&p.ch_eq[c][i]));
             for e in &mut self.ch_eq[c] {
                 e.set(&gains);
             }
         }
-        let db = load(&p.bass_db);
+        let (db, head) = (load(&p.bass_db), load(&p.bass_head));
         if db != self.bass_db {
-            // at most 0.5 dB per cycle, so night mode turning 12 dB of bass off glides instead of jumping
-            self.bass_db += (db - self.bass_db).clamp(-0.5, 0.5);
+            // night mode keeps the channels' headroom and glides at 24 dB/s, half a second for full
+            // bass. A change of the bass itself moves the headroom within 20 ms, so the shelf follows
+            // at once: gliding behind it would overdrive the limiter for half a second
+            let step = 24.0 * frames as f32 / dsp::RATE;
+            self.bass_db = if head != self.bass_head { db } else { self.bass_db + (db - self.bass_db).clamp(-step, step) };
             for b in &mut self.bass {
                 b.retune(Biquad::low_shelf(BASS_FREQ, self.bass_db));
             }
         }
+        self.bass_head = head;
         let mode = p.auto_volume.load(Relaxed);
         if mode != self.lev_mode {
             self.lev_mode = mode;
@@ -340,8 +355,9 @@ impl MicDsp {
         }
         let d = p.mic_deess.load(Relaxed);
         if d != self.deess_idx {
+            // switched on it starts fresh, it was out of the path; between strengths it keeps its state
+            if self.deess_idx == 0 { self.deess = DeEsser::new(d) } else { self.deess.set(d) }
             self.deess_idx = d;
-            self.deess.set(d);
         }
         let (target, noise) = (load(&p.mic_gain), p.mic_noise.load(Relaxed));
         if p.mic_fresh.swap(false, Relaxed) {
@@ -354,7 +370,6 @@ impl MicDsp {
             self.comp = dsp::voice_comp(self.voice_idx);
             self.deess = DeEsser::new(self.deess_idx);
             self.limiter = Self::limiter();
-            self.gate = Gate::new();
             self.quiet = 2;
             self.agc.restart();
         }
@@ -846,7 +861,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if req > 0 {
                 frames = frames.min(req);
             }
-            mix.update(&p);
+            mix.update(&p, frames);
             let limit = p.limiter.load(Relaxed);
             let clarity = p.clarity.load(Relaxed);
             let ducking = p.ducking.load(Relaxed);
@@ -880,7 +895,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         // an underrun: the last sample dies away within a millisecond and the sound
                         // fades back in over two, instead of two hard steps
                         mix.live[c] = 0.0;
-                        (mix.held[c].0 * 0.98, mix.held[c].1 * 0.98)
+                        (dsp::flush(mix.held[c].0 * 0.98), dsp::flush(mix.held[c].1 * 0.98))
                     };
                     mix.held[c] = (a, b);
                     if c == 1 && targets[1] > 0.0 {
@@ -1179,6 +1194,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let out_ticks = Cell::new(0u32);
     let (out_seen, out_want) = (Cell::new(u32::MAX), RefCell::new(None::<String>));
     let (mic_seen, mic_want) = (Cell::new(u32::MAX), RefCell::new(None::<String>));
+    // ticks until a microphone that moved to another device counts as a new session
+    let mic_moved = Cell::new(0u32);
     let (mic_on, mic_idle, mic_wait, mic_pinned) = (Cell::new(false), Cell::new(0u32), Cell::new(0u32), Cell::new(false));
     let mic_test = state_dir.join("mic-test");
     let viewer = state_dir.join("viewer");
@@ -1274,8 +1291,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         sync(out.node_id(), rcfg.borrow().output.clone(), &out_seen, &out_want, "output");
         if mic_on.get() && sync(mic.node_id(), rcfg.borrow().input.clone(), &mic_seen, &mic_want, "input") {
-            // the AGC's noise floor and the filters belong to the old microphone
-            p.mic_fresh.store(true, Relaxed);
+            // WirePlumber moves the stream a moment later; until then the old device still delivers
+            mic_moved.set(4);
+        }
+        if mic_moved.get() > 0 {
+            mic_moved.set(mic_moved.get() - 1);
+            if mic_moved.get() == 0 {
+                // the AGC's noise floor and the filters belong to the old microphone
+                p.mic_fresh.store(true, Relaxed);
+            }
         }
 
         // output reconnect, every 2 s while there is no device
@@ -1575,6 +1599,23 @@ mod tests {
     }
 
     #[test]
+    fn bass_glides_only_where_the_headroom_stays() {
+        let (p, mut mix) = (super::Params::default(), super::Mix::new());
+        let set = |db: f32, head: f32| (super::put(&p.bass_db, db), super::put(&p.bass_head, head));
+        set(12.0, 12.0);
+        mix.update(&p, 1024);
+        assert_eq!(mix.bass_db, 12.0);
+        // night mode: same headroom, the shelf glides about 0.5 dB per 1024 frames
+        set(0.0, 12.0);
+        mix.update(&p, 1024);
+        assert!((mix.bass_db - 11.488).abs() < 0.01, "{}", mix.bass_db);
+        // the bass itself turned off: the headroom jumps, so the shelf follows at once
+        set(0.0, 0.0);
+        mix.update(&p, 1024);
+        assert_eq!(mix.bass_db, 0.0);
+    }
+
+    #[test]
     fn backlog_drains_left_over_delay() {
         let q = 1024;
         let run = |start: usize| {
@@ -1590,6 +1631,25 @@ mod tests {
         assert_eq!(run(q * 2 * 3), q * 2 + 256);
         // the usual one cycle is left alone
         assert_eq!(run(q * 2), q * 2);
+        // the cut blends: a 440 Hz sine read across it never jumps more than its own slope allows
+        let (mut b, mut ring) = (super::Backlog::default(), VecDeque::new());
+        let mut t = 0usize;
+        let mut write = |ring: &mut VecDeque<f32>, n: usize| {
+            for _ in 0..n {
+                let v = 0.5 * (std::f32::consts::TAU * 440.0 * t as f32 / 48_000.0).sin();
+                ring.extend([v, v]);
+                t += 1;
+            }
+        };
+        write(&mut ring, q * 3);
+        let mut out = Vec::new();
+        for _ in 0..120 {
+            b.trim(&mut ring, q);
+            out.extend(ring.drain(..q * 2).step_by(2));
+            write(&mut ring, q);
+        }
+        let worst = out.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
+        assert!(worst < 0.06, "{worst}");
     }
 
     #[test]

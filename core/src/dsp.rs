@@ -565,8 +565,8 @@ impl Envelope {
 }
 
 /// Gain for the channels that step back while someone talks in Chat: down within 30 ms, so a short
-/// call-out is heard, and back up about half a second after the last word, so pauses between words
-/// do not pump. Fed with the chat before its fader, so a quiet Chat fader still ducks.
+/// call-out is heard, and back to full level within about a second of the last word, so pauses
+/// between words do not pump. Fed with the chat before its fader, so a quiet Chat fader still ducks.
 pub struct Ducker {
     env: Envelope,
     gain: f32,
@@ -581,7 +581,9 @@ impl Ducker {
 
     #[inline]
     pub fn run(&mut self, chat: f32, on: bool) -> f32 {
-        let want = if on && self.env.run(chat) > 0.01 { 0.25 } else { 1.0 };
+        // the envelope runs while ducking is off too, or switching it on would act on old speech
+        let talk = self.env.run(chat);
+        let want = if on && talk > 0.01 { 0.25 } else { 1.0 };
         self.gain += (want - self.gain) * if want < self.gain { self.down } else { self.up };
         self.gain
     }
@@ -661,7 +663,7 @@ impl Limiter {
 
 /// Denormals cost up to 100x per operation on some CPUs; silence decays into them.
 #[inline]
-fn flush(x: f32) -> f32 {
+pub fn flush(x: f32) -> f32 {
     if x.abs() < 1e-20 { 0.0 } else { x }
 }
 
@@ -1090,9 +1092,12 @@ mod tests {
         // a second after the last word it is back
         let g = (0..ms(1000)).map(|_| d.run(0.0, true)).last().unwrap();
         assert!(g > db_to_gain(-0.5), "{g}");
-        // switched off it never ducks
+        // switched off it never ducks; switched on after a second of silence it does not act on the old speech
         let mut d = Ducker::new();
         assert!((0..ms(500)).all(|i| d.run(talk(i), false) == 1.0));
+        (0..ms(1000)).for_each(|_| _ = d.run(0.0, false));
+        let g = (0..ms(100)).map(|_| d.run(0.0, true)).fold(1f32, f32::min);
+        assert!(g > db_to_gain(-1.0), "{g}");
     }
 
     #[test]
