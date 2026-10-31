@@ -316,6 +316,7 @@ sleep 1
 for m in $(pactl list short modules | awk '/module-remap-source/ {print $1}'); do pactl unload-module "$m"; done
 sleep 1.5
 check "last microphone gone: capture closed, no echo of the output" "$(pw-link -l | grep -q '|-> mixpilot_mic_in:' && echo "linked: $(pw-link -l | grep -B1 '|-> mixpilot_mic_in:' | head -2 | tr '\n' ' ')" || echo ok)"
+check "last microphone gone: reported as gone, not as unused" "$(grep -Fq 'mic_gone' "$W/daemon.log" && echo ok || echo missing)"
 wait $HOLD
 
 echo "-- shutdown"

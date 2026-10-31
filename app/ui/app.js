@@ -75,6 +75,7 @@ const EVENTS = {
   input: 'Mikrofon: {0}',
   mic_active: 'Mikrofon aktiv',
   mic_paused: 'Mikrofon pausiert, niemand nutzt es',
+  mic_gone: 'Kein Mikrofon mehr da, das Mixpilot Mikrofon ist still',
 };
 
 let cfg = null;

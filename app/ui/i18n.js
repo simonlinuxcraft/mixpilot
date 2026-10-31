@@ -204,6 +204,7 @@ const EN = {
   'Mikrofon: {0}': 'Microphone: {0}',
   'Mikrofon aktiv': 'Microphone active',
   'Mikrofon pausiert, niemand nutzt es': 'Microphone paused, nobody is using it',
+  'Kein Mikrofon mehr da, das Mixpilot Mikrofon ist still': 'No microphone left, the Mixpilot microphone is quiet',
   // setup
   'Willkommen bei Mixpilot': 'Welcome to Mixpilot',
   'Kurzer Check, damit alles sauber läuft. Das passiert nur beim ersten Start.': 'A quick check so everything runs smoothly. This only happens on the first start.',

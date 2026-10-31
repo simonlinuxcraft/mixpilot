@@ -311,6 +311,13 @@ impl DeEsser {
         Self { lp: Biquad::low_pass(split), threshold, floor, env_hf: 0.0, env_all: 0.0, fall: coef(30.0), gain: 1.0, attack: coef(1.0), release: coef(80.0) }
     }
 
+    /// Another strength on the running filter, so the change does not click.
+    pub fn set(&mut self, strength: u32) {
+        let n = Self::new(strength);
+        self.lp.retune(n.lp);
+        (self.threshold, self.floor) = (n.threshold, n.floor);
+    }
+
     #[inline]
     pub fn run(&mut self, x: f32) -> f32 {
         // the band is the input minus its low part, so turning it down never shifts the phase of the rest

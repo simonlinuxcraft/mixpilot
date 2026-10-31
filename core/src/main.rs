@@ -291,6 +291,9 @@ struct MicDsp {
     vad: Smooth,
     /// gain, noise mode, gate and AGC switch the AGC's noise floor was learned with
     agc_seen: (u32, u32, bool, bool),
+    noise_was: bool,
+    /// frames still muted after a new session: RNNoise's first output carries the last one's voice
+    quiet: u32,
 }
 
 impl MicDsp {
@@ -311,6 +314,8 @@ impl MicDsp {
             gain: Smooth::new(1.0, 20.0),
             vad: Smooth::new(1.0, 60.0),
             agc_seen: (0, 0, false, false),
+            noise_was: false,
+            quiet: 0,
         }
     }
 
@@ -324,13 +329,19 @@ impl MicDsp {
         let v = p.mic_voice.load(Relaxed);
         if v != self.voice_idx {
             self.voice_idx = v;
-            self.voice = dsp::voice_preset(v);
-            self.comp = dsp::voice_comp(v);
+            // new coefficients on the running filters, so switching presets mid-sentence does not click
+            for (f, n) in self.voice.iter_mut().zip(dsp::voice_preset(v)) {
+                f.retune(n);
+            }
+            self.comp = match (dsp::voice_comp(v), &self.comp) {
+                (Some(n), Some(old)) => Some(n.follow(old)),
+                (n, _) => n,
+            };
         }
         let d = p.mic_deess.load(Relaxed);
         if d != self.deess_idx {
             self.deess_idx = d;
-            self.deess = DeEsser::new(d);
+            self.deess.set(d);
         }
         let (target, noise) = (load(&p.mic_gain), p.mic_noise.load(Relaxed));
         if p.mic_fresh.swap(false, Relaxed) {
@@ -343,6 +354,8 @@ impl MicDsp {
             self.comp = dsp::voice_comp(self.voice_idx);
             self.deess = DeEsser::new(self.deess_idx);
             self.limiter = Self::limiter();
+            self.gate = Gate::new();
+            self.quiet = 2;
             self.agc.restart();
         }
         let (gate_on, agc_on) = (p.mic_gate.load(Relaxed), p.mic_agc.load(Relaxed));
@@ -370,12 +383,16 @@ impl MicDsp {
                 *s *= 32768.0;
             }
             let mut vad = self.denoise.process_frame(&mut self.frame_out, &scaled);
-            if noise > 0 {
-                for s in &mut self.frame_out {
-                    *s /= 32768.0;
-                }
-            } else {
-                self.frame_out = self.inbuf;
+            let on = noise > 0;
+            for (i, s) in self.frame_out.iter_mut().enumerate() {
+                let (den, raw) = (*s / 32768.0, self.inbuf[i]);
+                let (new, old) = if on { (den, raw) } else { (raw, den) };
+                // switching RNNoise fades over one frame: its output runs about a frame behind the input
+                let k = if on == self.noise_was { 1.0 } else { i as f32 / FRAME as f32 };
+                *s = old + (new - old) * k;
+            }
+            self.noise_was = on;
+            if !on {
                 vad = 1.0;
             }
             // "strong" also ducks everything RNNoise does not classify as voice
@@ -408,7 +425,10 @@ impl MicDsp {
                 if d > 0 {
                     y = self.deess.run(y);
                 }
-                let (y, _) = self.limiter.run(y, y);
+                let (mut y, _) = self.limiter.run(y, y);
+                if self.quiet > 0 {
+                    y = 0.0;
+                }
                 peak = peak.max(y.abs());
                 if out.len() >= MIC_RING_MAX {
                     out.pop_front();
@@ -421,6 +441,7 @@ impl MicDsp {
                     m.push_back(y);
                 }
             }
+            self.quiet = self.quiet.saturating_sub(1);
         }
         (peak, in_peak)
     }
@@ -1233,12 +1254,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let sync = |id: u32, want: String, seen: &Cell<u32>, last_want: &RefCell<Option<String>>, what: &'static str| {
             let mut r = rt.borrow_mut();
             if id == u32::MAX || r.md.is_none() {
-                return;
+                return false;
             }
             let have = r.targets.get(&id).cloned().unwrap_or_default();
             if seen.get() == id && have == want {
-                return;
+                return false;
             }
+            let switch = seen.get() == id;
             seen.set(id);
             if want.is_empty() { r.clear(id) } else { r.set(id, &want) }
             drop(r);
@@ -1247,10 +1269,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 event(&ev, what, &[&want]);
                 *last_want.borrow_mut() = Some(want);
             }
+            // true when a running stream moves to another device
+            switch
         };
         sync(out.node_id(), rcfg.borrow().output.clone(), &out_seen, &out_want, "output");
-        if mic_on.get() {
-            sync(mic.node_id(), rcfg.borrow().input.clone(), &mic_seen, &mic_want, "input");
+        if mic_on.get() && sync(mic.node_id(), rcfg.borrow().input.clone(), &mic_seen, &mic_want, "input") {
+            // the AGC's noise floor and the filters belong to the old microphone
+            p.mic_fresh.store(true, Relaxed);
         }
 
         // output reconnect, every 2 s while there is no device
@@ -1270,16 +1295,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // microphone on demand
         // the open stream keeps node.target from a pinned connect, only a new connect follows the default
-        if mic_on.get() && mic_pinned.get() && rcfg.borrow().input.is_empty() {
+        // leftovers would read as a late microphone and play stale voice on the next start
+        let close_mic = || {
             let _ = mic.disconnect();
             lock(&mic_out).clear();
+            lock(&mic_mon).clear();
             mic_on.set(false);
+        };
+        if mic_on.get() && mic_pinned.get() && rcfg.borrow().input.is_empty() {
+            close_mic();
         }
         if merr.replace(false) {
-            let _ = mic.disconnect();
-            // leftovers would read as a late microphone and play stale voice on the next start
-            lock(&mic_out).clear();
-            mic_on.set(false);
+            close_mic();
             mic_wait.set(RETRY_TICKS);
         }
         mic_wait.set(mic_wait.get().saturating_sub(1));
@@ -1287,10 +1314,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // would put the whole mix into the call as an echo
         let has_source = devs.borrow().values().any(|d| !d.sink && !d.name.starts_with("mixpilot"));
         if mic_on.get() && !has_source {
-            let _ = mic.disconnect();
-            lock(&mic_out).clear();
-            mic_on.set(false);
-            event(&ev, "mic_paused", &[]);
+            close_mic();
+            event(&ev, "mic_gone", &[]);
         }
         let wanted = has_source && (!src_on.borrow().is_empty() || rcfg.borrow().mic.monitor || fresh(&mic_test, 3));
         if wanted {
@@ -1319,9 +1344,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else if mic_on.get() {
             mic_idle.set(mic_idle.get() + 1);
             if mic_idle.get() >= RETRY_TICKS {
-                let _ = mic.disconnect();
-                lock(&mic_out).clear();
-                mic_on.set(false);
+                close_mic();
                 event(&ev, "mic_paused", &[]);
             }
         }
@@ -1567,6 +1590,31 @@ mod tests {
         assert_eq!(run(q * 2 * 3), q * 2 + 256);
         // the usual one cycle is left alone
         assert_eq!(run(q * 2), q * 2);
+    }
+
+    #[test]
+    fn microphone_starts_silent_and_noise_switch_fades() {
+        use std::sync::atomic::Ordering::Relaxed;
+        let p = super::Params::default();
+        super::put(&p.mic_gain, 1.0);
+        p.mic_fresh.store(true, Relaxed);
+        let mut mic = super::MicDsp::new();
+        let mut out = VecDeque::new();
+        let x = |i: usize| 0.3 * (std::f32::consts::TAU * 440.0 * i as f32 / 48_000.0).sin();
+        for b in 0..100 {
+            if b == 50 {
+                p.mic_noise.store(1, Relaxed);
+            }
+            let block: Vec<f32> = (b * 480..b * 480 + 480).map(x).collect();
+            mic.process(&block, &p, &mut out, None);
+        }
+        let y: Vec<f32> = out.into_iter().collect();
+        // a new session starts with two silent frames, RNNoise's first output is the last session's
+        assert!(y[..960].iter().all(|v| *v == 0.0));
+        assert!(y[960..1440].iter().any(|v| v.abs() > 0.1));
+        // RNNoise switched on mid-sentence: a hard switch jumps by up to 0.6, a 0.3 sine moves 0.02 per sample
+        let worst = y[23_000..26_000].windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
+        assert!(worst < 0.05, "{worst}");
     }
 
     #[test]
