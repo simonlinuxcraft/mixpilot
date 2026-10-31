@@ -511,10 +511,12 @@ function nameField() {
     const n = input.value.trim();
     if (!naming) return;
     if (!n) return done();
-    if (reservedName(n)) {
+    // a name already in use would silently replace that preset's curve
+    const taken = reservedName(n) ? 'So heißt schon ein eingebautes Preset' : n !== selP && Object.hasOwn(cfg.eq_presets, n) ? 'So heißt schon eines deiner Presets' : null;
+    if (taken) {
       input.setAttribute('aria-invalid', 'true');
       input.setAttribute('aria-describedby', msg.id);
-      msg.textContent = t('So heißt schon ein eingebautes Preset');
+      msg.textContent = t(taken);
       return;
     }
     cfg.eq_presets[n] = curveOf(selP).slice();
@@ -909,7 +911,12 @@ function buildAuto() {
     const s = $(id);
     for (let h = 0; h < 24; h++) s.add(new Option(String(h).padStart(2, '0'), String(h)));
     s.addEventListener('change', change(() => (cfg.night[key] = Number(s.value))));
-    painters.push(() => (s.value = String(cfg.night[key])));
+    const other = key === 'from' ? 'to' : 'from';
+    painters.push(() => {
+      s.value = String(cfg.night[key]);
+      // the same hour on both sides is an empty window, night mode would never start
+      for (const o of s.options) o.disabled = Number(o.value) === cfg.night[other];
+    });
   }
   const auto = $('autostart');
   auto.addEventListener('click', async () => {
@@ -1045,7 +1052,7 @@ async function tick() {
   micInLevel = lv.mic_in >= 0 ? decay(micInLevel, frac(lv.mic_in)) : 0;
   setMicMeter(micLevel);
   setMicInMeter(micInLevel);
-  $('mic-state').textContent = cfg.mic.mute ? t('stumm') : !s.mic_active ? (devices.sources.length ? t('Mikrofon aus') : t('kein Mikrofon')) : t('aktiv');
+  $('mic-state').textContent = cfg.mic.mute ? t('stumm') : !s.mic_active ? ((s.devices?.sources ?? devices.sources).length ? t('Mikrofon aus') : t('kein Mikrofon')) : t('aktiv');
   $('mic-state').disabled = !cfg.mic.mute;
   paintEvents(s.events || []);
   apps = s.apps || [];

@@ -19,6 +19,7 @@
 - Microphone: a new session no longer starts with a scrap of your voice from the last one, also when hearing yourself, and switching the input device while it is open starts the auto level and the gate fresh for the new microphone. Changing the voice preset or the S sound setting mid-sentence no longer clicks, and turning noise suppression on or off fades over 10 ms instead of jumping. When the last microphone goes away the window says so instead of "nobody is using it"
 - Less CPU load during long silences with auto volume, the gate or the S sound control on
 - Error messages can be closed, and they go away by themselves once their cause is gone, for example after unmuting the microphone or when a second running Mixpilot was closed. Before, they stayed until some other setting changed
+- Naming a new equalizer preset after one of your own presets no longer overwrites that preset without asking, the name is refused like the built-in names. Night mode cannot be set to start and end at the same hour anymore, which made it never start. The microphone status reads the current device list, so "No microphone" shows up at once instead of up to 5 s later
 
 ## 0.0.6 - Easier for everyone
 
