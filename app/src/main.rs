@@ -581,9 +581,17 @@ fn scaled(now: &[u64], percent: u32) -> Vec<String> {
 #[tauri::command(async)]
 fn set_master(volume: u32) -> Result<(), String> {
     master_changed();
+    static BALANCE: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
     let sink = output_sink();
-    // a left/right balance set in the system survives the fader
-    let levels = scaled(&pactl(&["get-sink-volume", &sink]).map(|o| channel_volumes(&o)).unwrap_or_default(), volume);
+    // a left/right balance set in the system survives the fader; at 0 % every channel is 0, so the
+    // last one seen above 0 is kept for the way back up
+    let now = pactl(&["get-sink-volume", &sink]).map(|o| channel_volumes(&o)).unwrap_or_default();
+    let mut balance = BALANCE.lock().unwrap_or_else(|e| e.into_inner());
+    if now.iter().any(|&c| c > 0) {
+        balance.clone_from(&now);
+    }
+    let levels = scaled(if now.iter().all(|&c| c == 0) && balance.len() == now.len() { &balance } else { &now }, volume);
+    drop(balance);
     let mut args = vec!["set-sink-volume", sink.as_str()];
     args.extend(levels.iter().map(String::as_str));
     pactl(&args)

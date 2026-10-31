@@ -130,8 +130,11 @@ const painters = [];
 const paintAll = () => painters.forEach((p) => p());
 
 let errorShown = null;
-function showError(e) {
+let errorClosed = null;
+// `again`: a message the device check repeats every 5 s; once closed it stays closed until its cause was gone
+function showError(e, again = false) {
   const raw = String(e);
+  if (again && raw === errorClosed) return;
   const box = $('error');
   // a raw message from pactl or the system gets a translated frame and is marked as English
   const known = Object.hasOwn(EN, raw);
@@ -142,7 +145,10 @@ function showError(e) {
     const close = el('button', 'error-close', '×');
     close.type = 'button';
     close.setAttribute('aria-label', t('Meldung schließen'));
-    close.addEventListener('click', () => clearError());
+    close.addEventListener('click', () => {
+      errorClosed = errorShown;
+      clearError();
+    });
     // first in the flow, so it floats to the top right corner
     box.replaceChildren(close, ...(known ? [t(raw)] : [`${t('Fehler:')} `, part]));
   }
@@ -153,6 +159,7 @@ function showError(e) {
 // hides the banner, or with a message only while it still shows that one: once its cause is gone
 // it must not stay up until some unrelated setting is saved
 function clearError(raw) {
+  if (raw !== undefined && raw === errorClosed) errorClosed = null;
   if (raw !== undefined && errorShown !== raw) return;
   $('error').hidden = true;
   errorShown = null;
@@ -439,9 +446,12 @@ function strip(id, label, master) {
     root.append(btns, apps);
   }
   painters.push(() => {
-    // above 100 % (set with the volume keys) the range grows, so touching it does not cut the volume down
-    if (master) fader.max = Math.max(100, Math.min(150, masterDev.volume));
-    if (Date.now() - moved > 800) fader.value = get();
+    // while it moves, range and value are the user's; above 100 % (the volume keys go up to 150) the
+    // range is 150, so touching it does not cut the volume down
+    if (Date.now() - moved > 800) {
+      if (master) fader.max = masterDev.volume > 100 ? 150 : 100;
+      fader.value = get();
+    }
     const muted = master ? masterDev.mute : cfg[id].mute;
     const level = master ? (masterDev.known ? `${masterDev.volume} %` : t('kein Gerät')) : fdb(cfg[id].volume);
     valueText(fader, muted ? `${level}, ${t('stumm')}` : level);
@@ -873,9 +883,9 @@ function paintDevices() {
   const loop = !c.output && devices.default_sink.startsWith('mixpilot_');
   const loopMsg = 'Dein System-Standard für die Ausgabe ist ein Mixpilot-Kanal. Wähle oben bei Ausgabe dein Headset oder deine Lautsprecher.';
   const dupMsg = 'Mixpilot läuft zweimal, zum Beispiel als Snap und als deb. Beende oder deinstalliere eine der beiden Versionen, sonst gibt es jeden Kanal doppelt.';
-  if (loop) showError(loopMsg);
+  if (loop) showError(loopMsg, true);
   else clearError(loopMsg);
-  if (devices.duplicate) showError(dupMsg);
+  if (devices.duplicate) showError(dupMsg, true);
   else clearError(dupMsg);
 }
 

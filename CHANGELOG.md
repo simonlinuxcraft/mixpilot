@@ -20,7 +20,7 @@
 - Less CPU load during long silences with auto volume, the gate or the S sound control on
 - Error messages can be closed, and they go away by themselves once their cause is gone, for example after unmuting the microphone or when a second running Mixpilot was closed. Before, they stayed until some other setting changed
 - Naming a new equalizer preset after one of your own presets no longer overwrites that preset without asking, the name is refused like the built-in names. Night mode cannot be set to start and end at the same hour anymore, which made it never start. The microphone status reads the current device list, so "No microphone" shows up at once instead of up to 5 s later
-- Master keeps a left/right balance set in the system instead of evening it out with the first move, and follows the volume keys even right after you clicked it. Above 100 % its range grows with the volume, so touching it no longer cuts a 130 % volume down to 100 %
+- Master keeps a left/right balance set in the system instead of evening it out with the first move, and follows the volume keys even right after you clicked it. Above 100 % its range reaches 150 %, so touching it no longer cuts a 130 % volume down to 100 %
 - Quitting no longer freezes the window and the tray for a few seconds while the audio core stops. When the tray cannot save a change, for example because the settings file is not writable, its check mark goes back instead of showing a state that is not in effect. A bug report keeps the core log even when it holds a few bytes that are not valid text
 - Push-to-mute shows as on again after its key was removed and set again in the desktop's settings. It kept working but the window said it was off
 
