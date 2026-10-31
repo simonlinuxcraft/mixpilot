@@ -250,15 +250,24 @@ impl Mix {
         }
         let db = load(&p.bass_db);
         if db != self.bass_db {
-            self.bass_db = db;
+            // at most 0.5 dB per cycle, so night mode turning 12 dB of bass off glides instead of jumping
+            self.bass_db += (db - self.bass_db).clamp(-0.5, 0.5);
             for b in &mut self.bass {
-                b.retune(Biquad::low_shelf(BASS_FREQ, db));
+                b.retune(Biquad::low_shelf(BASS_FREQ, self.bass_db));
             }
         }
         let mode = p.auto_volume.load(Relaxed);
         if mode != self.lev_mode {
             self.lev_mode = mode;
-            self.leveler = Leveler::output_mode(mode);
+            // the new mode starts from the gain the old one reached; off glides back to 0 dB first
+            let next = Leveler::output_mode(mode).unwrap_or_else(Leveler::neutral);
+            self.leveler = Some(match &self.leveler {
+                Some(old) => next.follow(old),
+                None => next,
+            });
+        }
+        if mode == 0 && self.leveler.as_ref().is_some_and(Leveler::settled) {
+            self.leveler = None;
         }
     }
 }
@@ -873,9 +882,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 l = mix.bass[0].run(sanitize(l));
                 r = mix.bass[1].run(sanitize(r));
+                // runs either way, so switching it on starts from the current sound, not an old state
+                let (cl, cr) = (mix.clarity[0].run(l), mix.clarity[1].run(r));
                 if clarity {
-                    l = mix.clarity[0].run(l);
-                    r = mix.clarity[1].run(r);
+                    (l, r) = (cl, cr);
                 }
                 if let Some(lev) = &mut mix.leveler {
                     let g = lev.gain(l.abs().max(r.abs()));
@@ -887,11 +897,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     l += v * 0.8;
                     r += v * 0.8;
                 }
-                if limit {
-                    (l, r) = mix.limiter.run(l, r);
-                } else {
-                    (l, r) = (sanitize(l).clamp(-1.0, 1.0), sanitize(r).clamp(-1.0, 1.0));
-                }
+                (l, r) = if limit { mix.limiter.run(l, r) } else { mix.limiter.run_off(l, r) };
                 peaks[LV_MASTER] = peaks[LV_MASTER].max(l.abs());
                 peaks[LV_MASTER + 1] = peaks[LV_MASTER + 1].max(r.abs());
                 bytes[f * 8..f * 8 + 4].copy_from_slice(&l.to_le_bytes());

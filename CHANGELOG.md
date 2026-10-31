@@ -15,6 +15,7 @@
 - The limiter no longer distorts bass. It let the level rise again between two peaks of a bass wave, which roughened every loud song that reached it. Now it holds still through the whole wave, the distortion on a 30 to 60 Hz bass drops from up to 2 % to well below what anyone can hear
 - Ducking reacts in time. Game, Media and Music are down by 10 dB within 100 ms of someone talking in Chat instead of after almost a second, so a short call-out is heard, and come back about half a second after the last word instead of up to two seconds. It also works when the Chat fader is low, which used to stop it completely
 - Sound no longer stays late after switching the output device or a short stall. Up to three audio cycles of delay could remain for good, about 64 ms at the usual settings and a quarter second at large buffer sizes; they are now dropped within a few seconds. When an app's audio runs dry for a moment it fades out and back in instead of clicking
+- Switching sound settings no longer jumps. Changing or turning off auto volume, also when night mode starts or ends by itself, used to change the level by 6 to 8 dB at once and now glides. Night mode fades the bass out over about half a second. An equalizer band set back to 0 dB no longer drops out mid-wave, and turning Clarity or the limiter back on no longer plays a moment of old sound
 
 ## 0.0.6 - Easier for everyone
 

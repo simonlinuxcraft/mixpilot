@@ -143,11 +143,13 @@ pub const EQ_FREQS: [f32; 10] = [31.0, 62.0, 125.0, 250.0, 500.0, 1000.0, 2000.0
 pub struct Eq10 {
     bands: [Biquad; 10],
     gains: [f32; 10],
+    /// set once a band was off 0 dB: back at 0 dB it keeps running, flat, so it does not drop out mid-wave
+    used: [bool; 10],
 }
 
 impl Default for Eq10 {
     fn default() -> Self {
-        Self { bands: [Biquad::identity(); 10], gains: [0.0; 10] }
+        Self { bands: [Biquad::identity(); 10], gains: [0.0; 10], used: [false; 10] }
     }
 }
 
@@ -156,11 +158,12 @@ impl Eq10 {
         for i in 0..10 {
             let g = gains[i].clamp(-12.0, 12.0);
             if g != self.gains[i] {
-                if self.gains[i] == 0.0 {
-                    self.bands[i] = Biquad::peaking(EQ_FREQS[i], g, 1.4);
-                } else {
+                if self.used[i] {
                     self.bands[i].retune(Biquad::peaking(EQ_FREQS[i], g, 1.4));
+                } else {
+                    self.bands[i] = Biquad::peaking(EQ_FREQS[i], g, 1.4);
                 }
+                self.used[i] = true;
                 self.gains[i] = g;
             }
         }
@@ -169,7 +172,7 @@ impl Eq10 {
     #[inline]
     pub fn run(&mut self, mut x: f32) -> f32 {
         for i in 0..10 {
-            if self.gains[i] != 0.0 {
+            if self.used[i] {
                 x = self.bands[i].run(x);
             }
         }
@@ -239,6 +242,21 @@ impl Leveler {
             2 => Some(Self::new(-34.0, 5.0, 12.0, 25.0, 400.0)),
             _ => None,
         }
+    }
+
+    /// Auto volume switched off: glides back to 0 dB from where the last mode left it.
+    pub fn neutral() -> Self {
+        Self::new(0.0, 1.0, 0.0, 60.0, 900.0)
+    }
+
+    /// Takes over the reading and the gain of the leveler it replaces, so switching modes never jumps.
+    pub fn follow(mut self, old: &Leveler) -> Self {
+        (self.ms, self.gain_db) = (old.ms, old.gain_db);
+        self
+    }
+
+    pub fn settled(&self) -> bool {
+        self.gain_db.abs() < 0.01
     }
 
     /// Dense presenter sound, runs after the AGC so the input level is known (about -23 dBFS):
@@ -600,9 +618,21 @@ impl Limiter {
 
     #[inline]
     pub fn run(&mut self, l: f32, r: f32) -> (f32, f32) {
+        self.step(l, r, true)
+    }
+
+    /// Switched off: the same delay, so switching keeps the timing and never plays stale samples,
+    /// and only a clamp at full scale.
+    #[inline]
+    pub fn run_off(&mut self, l: f32, r: f32) -> (f32, f32) {
+        self.step(l, r, false)
+    }
+
+    #[inline]
+    fn step(&mut self, l: f32, r: f32, on: bool) -> (f32, f32) {
         let (l, r) = (sanitize(l), sanitize(r));
         let peak = l.abs().max(r.abs());
-        let need = if peak > self.ceiling { self.ceiling / peak } else { 1.0 };
+        let need = if on && peak > self.ceiling { self.ceiling / peak } else { 1.0 };
         self.cur = self.cur.min(need);
         self.n += 1;
         if self.n == HOLD {
@@ -611,12 +641,13 @@ impl Limiter {
         let target = self.cur.min(self.prev);
         let k = if target < self.gain { self.attack } else { self.release };
         self.gain += (target - self.gain) * k;
-        if (self.gain - target).abs() < 1e-4 {
+        // f32 steps near 1.0 are too coarse for a slow release to arrive by itself
+        if (self.gain - target).abs() < 1e-3 {
             self.gain = target;
         }
         let (dl, dr) = std::mem::replace(&mut self.delay[self.pos], (l, r));
         self.pos = (self.pos + 1) % LOOKAHEAD;
-        let c = self.ceiling;
+        let c = if on { self.ceiling } else { 1.0 };
         ((dl * self.gain).clamp(-c, c), (dr * self.gain).clamp(-c, c))
     }
 }
@@ -1053,6 +1084,58 @@ mod tests {
             }
         }
         assert!(hi / lo < 1.001, "gain ripples by {:.1} %", (hi / lo - 1.0) * 100.0);
+    }
+
+    #[test]
+    fn eq_band_back_at_flat_does_not_drop_out() {
+        // 1 kHz at +12 dB, then back to 0 dB mid-wave: skipping the band would step from 0.8 to 0.2
+        let mut eq = Eq10::default();
+        let mut g = [0.0; 10];
+        g[5] = 12.0;
+        eq.set(&g);
+        let x = |i: usize| 0.2 * (TAU * 1000.0 * i as f32 / RATE).sin();
+        let mut last = 0.0;
+        let mut worst = 0f32;
+        for i in 0..4800 {
+            if i == 2412 {
+                eq.set(&[0.0; 10]);
+            }
+            let y = eq.run(x(i));
+            if i > 2400 {
+                worst = worst.max((y - last).abs());
+            }
+            last = y;
+        }
+        // the steepest a 0.8 sine at 1 kHz moves per sample is 0.105
+        assert!(worst < 0.12, "{worst}");
+    }
+
+    #[test]
+    fn leveler_mode_switch_keeps_the_gain() {
+        let mut soft = Leveler::output_mode(1).unwrap();
+        let loud = |i: usize| 0.8 * (TAU * 300.0 * i as f32 / RATE).sin();
+        let before = (0..48_000).map(|i| soft.gain(loud(i))).last().unwrap();
+        assert!(before < db_to_gain(-2.0), "{before}");
+        let mut off = Leveler::neutral().follow(&soft);
+        let after = off.gain(loud(48_000));
+        assert!((after / before - 1.0).abs() < 0.01, "{before} -> {after}");
+        (0..48_000 * 8).for_each(|i| _ = off.gain(loud(i)));
+        assert!(off.settled());
+    }
+
+    #[test]
+    fn limiter_off_keeps_its_delay_and_glides() {
+        let mut lim = Limiter::new(-1.0, 120.0);
+        for _ in 0..4800 {
+            lim.run(2.0, 2.0);
+        }
+        let (on, _) = lim.run(2.0, 2.0);
+        // switched off while limiting: no jump back to full level, then free up to full scale
+        let (off, _) = lim.run_off(0.5, 0.5);
+        assert!((off / on - 1.0).abs() < 0.01, "{on} -> {off}");
+        let tail: Vec<f32> = (0..96_000).map(|_| lim.run_off(0.5, 0.5).0).collect();
+        assert_eq!(tail[tail.len() - 1], 0.5);
+        assert_eq!(lim.run_off(4.0, 4.0).0, 0.5, "still delayed by the look-ahead");
     }
 
     #[test]
