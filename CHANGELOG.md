@@ -18,6 +18,7 @@
 - Switching sound settings no longer jumps. Changing or turning off auto volume, also when night mode starts or ends by itself, used to change the level by 6 to 8 dB at once and now glides. Night mode fades the bass out over about half a second. An equalizer band set back to 0 dB no longer drops out mid-wave, and turning Clarity or the limiter back on no longer plays a moment of old sound
 - Microphone: a new session no longer starts with a scrap of your voice from the last one, also when hearing yourself, and switching the input device while it is open starts the auto level and the gate fresh for the new microphone. Changing the voice preset or the S sound setting mid-sentence no longer clicks, and turning noise suppression on or off fades over 10 ms instead of jumping. When the last microphone goes away the window says so instead of "nobody is using it"
 - Less CPU load during long silences with auto volume, the gate or the S sound control on
+- Error messages can be closed, and they go away by themselves once their cause is gone, for example after unmuting the microphone or when a second running Mixpilot was closed. Before, they stayed until some other setting changed
 
 ## 0.0.6 - Easier for everyone
 

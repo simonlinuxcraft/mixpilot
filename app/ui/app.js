@@ -87,6 +87,8 @@ const devCfg = () => cfg || pending;
 const masterDev = { volume: 0, mute: false, known: false };
 // One volume command at a time, always with the newest value: parallel pactl calls can finish out of
 // order and make the fader jump back and forth.
+const MIC_MUTED = 'Das Mikrofon ist stumm. Klick oben auf "stumm", um es wieder einzuschalten.';
+const MASTER_FAILED = 'Lautstärke des Ausgabegeräts konnte nicht geändert werden';
 let masterPending = null;
 let masterBusy = false;
 let masterTouched = 0;
@@ -99,7 +101,10 @@ async function setMaster(v) {
   while (masterPending !== null) {
     const next = masterPending;
     masterPending = null;
-    await invoke('set_master', { volume: next }).then(() => (masterDev.known = true), showError);
+    await invoke('set_master', { volume: next }).then(() => {
+      masterDev.known = true;
+      clearError(MASTER_FAILED);
+    }, showError);
   }
   masterBusy = false;
   masterTouched = Date.now();
@@ -124,19 +129,33 @@ let devices = { sinks: [], sources: [], default_sink: '', default_source: '' };
 const painters = [];
 const paintAll = () => painters.forEach((p) => p());
 
+let errorShown = null;
 function showError(e) {
   const raw = String(e);
   const box = $('error');
   // a raw message from pactl or the system gets a translated frame and is marked as English
   const known = Object.hasOwn(EN, raw);
-  const s = known ? t(raw) : `${t('Fehler:')} ${raw}`;
   // rewriting the same text would make screen readers repeat the alert
-  if (box.hidden || box.textContent !== s) {
+  if (box.hidden || errorShown !== raw) {
     const part = el('span', null, raw);
     part.lang = 'en';
-    box.replaceChildren(...(known ? [s] : [`${t('Fehler:')} `, part]));
+    const close = el('button', 'error-close', '×');
+    close.type = 'button';
+    close.setAttribute('aria-label', t('Meldung schließen'));
+    close.addEventListener('click', () => clearError());
+    // first in the flow, so it floats to the top right corner
+    box.replaceChildren(close, ...(known ? [t(raw)] : [`${t('Fehler:')} `, part]));
   }
+  errorShown = raw;
   box.hidden = false;
+}
+
+// hides the banner, or with a message only while it still shows that one: once its cause is gone
+// it must not stay up until some unrelated setting is saved
+function clearError(raw) {
+  if (raw !== undefined && errorShown !== raw) return;
+  $('error').hidden = true;
+  errorShown = null;
 }
 
 // A dialog takes the focus and makes the window behind it inert; closing gives the focus back.
@@ -213,7 +232,7 @@ function save() {
     invoke('set_config', { cfg }).then(() => {
       // the null went out once; sending it again would delete a later note before it is shown
       if (ack && cfg.config_reset === null) delete cfg.config_reset;
-      $('error').hidden = true;
+      clearError();
     }, showError);
   };
   if (Date.now() - lastSave > 60) run();
@@ -774,12 +793,13 @@ function buildMic() {
       return showError(e);
     }
     cfg.mic.mute = false;
+    clearError(MIC_MUTED);
     paintAll();
   });
   const test = $('mic-test');
   test.addEventListener('click', async () => {
     // a muted microphone would record five seconds of silence
-    if (cfg.mic.mute) return showError('Das Mikrofon ist stumm. Klick oben auf "stumm", um es wieder einzuschalten.');
+    if (cfg.mic.mute) return showError(MIC_MUTED);
     test.disabled = true;
     let left = 5;
     test.textContent = t('Aufnahme {0} s', left);
@@ -844,8 +864,12 @@ function paintDevices() {
   });
   if (cfg) paintDefaultMic();
   const loop = !c.output && devices.default_sink.startsWith('mixpilot_');
-  if (loop) showError('Dein System-Standard für die Ausgabe ist ein Mixpilot-Kanal. Wähle oben bei Ausgabe dein Headset oder deine Lautsprecher.');
-  if (devices.duplicate) showError('Mixpilot läuft zweimal, zum Beispiel als Snap und als deb. Beende oder deinstalliere eine der beiden Versionen, sonst gibt es jeden Kanal doppelt.');
+  const loopMsg = 'Dein System-Standard für die Ausgabe ist ein Mixpilot-Kanal. Wähle oben bei Ausgabe dein Headset oder deine Lautsprecher.';
+  const dupMsg = 'Mixpilot läuft zweimal, zum Beispiel als Snap und als deb. Beende oder deinstalliere eine der beiden Versionen, sonst gibt es jeden Kanal doppelt.';
+  if (loop) showError(loopMsg);
+  else clearError(loopMsg);
+  if (devices.duplicate) showError(dupMsg);
+  else clearError(dupMsg);
 }
 
 async function refreshDevices() {

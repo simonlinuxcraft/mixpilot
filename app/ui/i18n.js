@@ -82,6 +82,7 @@ const EN = {
   'Benutzt von {0}. Änderungen hörst du dort sofort.': 'Used by {0}. You hear changes there right away.',
   'Kein Kanal benutzt dieses Preset. Im Mixer wählst du es über den EQ-Knopf eines Kanals.': "No channel uses this preset. In the mixer, pick it with a channel's EQ button.",
   'So heißt schon ein eingebautes Preset': 'A built-in preset already has this name',
+  'Meldung schließen': 'Close message',
   'Höchstens {0} eigene Presets, lösch zuerst eins': 'At most {0} presets of your own, delete one first',
   'Löschen': 'Delete',
   'Preset {0} löschen': 'Delete preset {0}',

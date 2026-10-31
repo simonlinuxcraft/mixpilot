@@ -113,6 +113,8 @@ main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 20px; displa
 .hint { margin: 0; font-size: 12px; color: var(--muted); }
 .path { overflow-wrap: anywhere; }
 .error { margin: 0; padding: 10px 14px; border-radius: 8px; background: #3a1714; color: #ffd2cc; }
+.error-close { float: right; margin: -4px -6px 0 12px; padding: 2px 6px; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; font-size: 18px; line-height: 1; cursor: pointer; }
+.error-close:hover { background: #5a2520; }
 
 /* mixer strips */
 /* the channel strips fill the window, init() gives the rotated faders the matching length */
