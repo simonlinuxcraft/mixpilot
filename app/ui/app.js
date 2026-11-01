@@ -1041,7 +1041,18 @@ function paintGainHint(hint) {
       ? t('Von {0} kommt kein Ton. Sprich etwas, oder wähle oben bei Eingabe ein anderes Mikrofon.', mic ? mic.description : t('diesem Mikrofon'))
       : t('Beim Sprechen sollte "Eingang" fast bis ans rechte Ende reichen, aber nicht ganz.');
 }
+// get_state runs on the main thread; when that stalls, the 50 ms interval must not pile up calls
+let ticking = false;
 async function tick() {
+  if (ticking) return;
+  ticking = true;
+  try {
+    await tickOnce();
+  } finally {
+    ticking = false;
+  }
+}
+async function tickOnce() {
   if (document.hidden) {
     // the silence count restarts when the window comes back
     soundAt = Date.now();
