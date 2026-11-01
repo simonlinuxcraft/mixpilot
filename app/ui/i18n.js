@@ -133,6 +133,8 @@ const EN = {
   'Mikrofon-Verstärkung in Prozent': 'Microphone gain in percent',
   'Auto-Pegel': 'Auto level',
   'Gleichmäßig laut, ohne zu übersteuern.': 'Even loudness without clipping.',
+  'Von {0} kommt kein Ton. Sprich etwas, oder wähle oben bei Eingabe ein anderes Mikrofon.': 'No sound is coming from {0}. Say something, or pick another microphone at Input above.',
+  'diesem Mikrofon': 'this microphone',
   'Dein Mikrofon übersteuert, bevor Mixpilot den Ton bekommt. Stell den Mikrofonpegel in den Sound-Einstellungen deines Systems leiser.': 'Your microphone clips before Mixpilot gets the sound. Turn the microphone level down in your system\'s sound settings.',
   'Stimm-Preset': 'Voice preset',
   'Natürlich': 'Natural',

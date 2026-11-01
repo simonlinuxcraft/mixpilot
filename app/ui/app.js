@@ -1023,14 +1023,19 @@ function paintEvents(events) {
 let micLevel = 0;
 let micInLevel = 0;
 let clippedAt = 0;
-let showsClip = false;
-function paintClip(clipped) {
-  if (clipped === showsClip) return;
-  showsClip = clipped;
-  $('gain-hint').classList.toggle('alert', clipped);
-  $('gain-hint').textContent = clipped
+let soundAt = 0;
+let shownHint = '';
+function paintGainHint(hint) {
+  if (hint === shownHint) return;
+  shownHint = hint;
+  // with Mixpilot as the system default the core records some other source, name unknown here
+  const mic = devices.sources.find((d) => d.name === (cfg.input || devices.default_source) && !d.name.startsWith('mixpilot'));
+  $('gain-hint').classList.toggle('alert', hint !== '');
+  $('gain-hint').textContent = hint === 'clip'
     ? t('Dein Mikrofon übersteuert, bevor Mixpilot den Ton bekommt. Stell den Mikrofonpegel in den Sound-Einstellungen deines Systems leiser.')
-    : t('Beim Sprechen sollte "Eingang" fast bis ans rechte Ende reichen, aber nicht ganz.');
+    : hint === 'silent'
+      ? t('Von {0} kommt kein Ton. Sprich etwas, oder wähle oben bei Eingabe ein anderes Mikrofon.', mic ? mic.description : t('diesem Mikrofon'))
+      : t('Beim Sprechen sollte "Eingang" fast bis ans rechte Ende reichen, aber nicht ganz.');
 }
 async function tick() {
   if (document.hidden) return;
@@ -1040,7 +1045,7 @@ async function tick() {
   } catch {
     // no core, no level: an old clip warning would stay forever
     clippedAt = 0;
-    paintClip(false);
+    paintGainHint('');
     return;
   }
   const lv = s.levels || {};
@@ -1062,7 +1067,10 @@ async function tick() {
   }
   // full scale from the device: clipped in its own preamp, no processing can undo that
   if (lv.mic_raw >= 0.99) clippedAt = Date.now();
-  paintClip(Date.now() - clippedAt < 5000);
+  // an empty jack or a wrong default source gives digital silence or hiss far below -70 dBFS,
+  // a real microphone in a quiet room does not; only a hint, the device is never switched
+  if (!(lv.mic_raw >= 0 && lv.mic_raw <= 0.0003) || cfg.mic.mute) soundAt = Date.now();
+  paintGainHint(Date.now() - clippedAt < 5000 ? 'clip' : Date.now() - soundAt > 10000 ? 'silent' : '');
   micLevel = lv.mic >= 0 ? decay(micLevel, frac(lv.mic)) : 0;
   micInLevel = lv.mic_in >= 0 ? decay(micInLevel, frac(lv.mic_in)) : 0;
   setMicMeter(micLevel);

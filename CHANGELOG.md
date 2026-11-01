@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The microphone page says when no sound at all has come from the microphone for 10 seconds, for example when the system default is an empty jack, and names the device
 - Bug reports from the Snap name the real distribution instead of "Ubuntu Core", say which Snap permissions are not connected, and list the default devices, all outputs and microphones and the current microphone level
 - Auto level for the microphone no longer creeps up during pauses, so the first word after a pause does not come in too loud. A shout or a laugh is turned down within 10 ms instead of being flattened by the limiter, and the voice after a laugh stays within about 2 dB instead of dropping by 5 dB or more. Single clicks and knocks that get past the gate no longer make it turn up. Tuned on a real recording, quiet speech gets the same lift as before
 - The microphone page warns when the microphone already clips before Mixpilot gets the sound, which no processing can repair, and says to turn its level down in the system's sound settings
