@@ -254,6 +254,18 @@ const EN = {
   'pipewire-rs, MIT': 'pipewire-rs, MIT',
   'Mixpilot beenden': 'Quit Mixpilot',
   'Beendet auch den Audio-Kern. Apps spielen dann wieder direkt über dein Gerät.': 'Also stops the audio core. Apps then play directly on your device again.',
+  // error hints
+  'Die Installation ist unvollständig. Installier Mixpilot neu.': 'The installation is incomplete. Reinstall Mixpilot.',
+  'Klick oben auf "Audio-Kern starten" und versuch es dann nochmal.': 'Click "Start audio core" at the top, then try again.',
+  'Prüf, ob das Mikrofon noch angesteckt ist, und wähle es oben bei Eingabe neu aus.': 'Check that the microphone is still plugged in and choose it again under Input at the top.',
+  'Prüf, ob ein Mikrofon angesteckt und oben bei Eingabe gewählt ist. In der Snap-Version muss außerdem der Mikrofon-Zugriff freigegeben sein, das zeigt die Einrichtung.': 'Check that a microphone is plugged in and chosen under Input at the top. In the snap version, microphone access must also be granted, the setup shows whether it is.',
+  'Prüf, ob oben bei Ausgabe dein Headset oder deine Lautsprecher gewählt sind.': 'Check that your headset or speakers are chosen under Output at the top.',
+  'Das Gerät wurde vielleicht gerade getrennt. Wähle oben bei Ausgabe ein verbundenes Gerät.': 'The device may have just been disconnected. Choose a connected device under Output at the top.',
+  'Der Speicherplatz ist voll. Mach etwas Platz frei, sonst werden Einstellungen nicht gespeichert.': 'The disk is full. Free up some space, otherwise settings are not saved.',
+  'Mixpilot darf seine Einstellungen nicht speichern. Prüf, ob du in deinem Home-Verzeichnis schreiben darfst.': 'Mixpilot is not allowed to save its settings. Check that you can write to your home folder.',
+  'Ein PipeWire-Werkzeug fehlt. Installier die PipeWire-Werkzeuge deiner Distribution (pactl, pw-record, pw-play).': 'A PipeWire tool is missing. Install the PipeWire tools of your distribution (pactl, pw-record, pw-play).',
+  'PipeWire antwortet nicht. Melde dich ab und wieder an oder starte den Rechner neu.': 'PipeWire is not responding. Log out and back in or restart the computer.',
+  'Wenn das wieder passiert, schick bitte über "Fehler melden" einen Bericht.': 'If this happens again, please send a report via "Report a bug".',
   // bug report
   'Danke, dass du hilfst, Mixpilot besser zu machen. Beschreib kurz, was passiert ist und was du erwartet hättest.': 'Thanks for helping to make Mixpilot better. Briefly describe what happened and what you expected.',
   'Was ist passiert?': 'What happened?',

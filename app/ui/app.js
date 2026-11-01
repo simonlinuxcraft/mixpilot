@@ -129,6 +129,28 @@ let devices = { sinks: [], sources: [], default_sink: '', default_source: '' };
 const painters = [];
 const paintAll = () => painters.forEach((p) => p());
 
+// what to try next, so a message never ends at "failed"
+const HINTS = {
+  'Audio-Kern nicht gefunden': 'Die Installation ist unvollständig. Installier Mixpilot neu.',
+  'Audio-Kern gestoppt': 'Klick oben auf "Audio-Kern starten" und versuch es dann nochmal.',
+  'Standard-Mikrofon konnte nicht gesetzt werden': 'Prüf, ob das Mikrofon noch angesteckt ist, und wähle es oben bei Eingabe neu aus.',
+  'Aufnahme fehlgeschlagen': 'Prüf, ob ein Mikrofon angesteckt und oben bei Eingabe gewählt ist. In der Snap-Version muss außerdem der Mikrofon-Zugriff freigegeben sein, das zeigt die Einrichtung.',
+  'Wiedergabe fehlgeschlagen': 'Prüf, ob oben bei Ausgabe dein Headset oder deine Lautsprecher gewählt sind.',
+  'Lautstärke des Ausgabegeräts konnte nicht geändert werden': 'Das Gerät wurde vielleicht gerade getrennt. Wähle oben bei Ausgabe ein verbundenes Gerät.',
+};
+const HINT_RULES = [
+  [/os error 28/, 'Der Speicherplatz ist voll. Mach etwas Platz frei, sonst werden Einstellungen nicht gespeichert.'],
+  [/os error 13/, 'Mixpilot darf seine Einstellungen nicht speichern. Prüf, ob du in deinem Home-Verzeichnis schreiben darfst.'],
+  [/^(pactl|pw-record|pw-play): .*(No such file|not found)/, 'Ein PipeWire-Werkzeug fehlt. Installier die PipeWire-Werkzeuge deiner Distribution (pactl, pw-record, pw-play).'],
+  [/^(pactl|pw-record|pw-play): /, 'PipeWire antwortet nicht. Melde dich ab und wieder an oder starte den Rechner neu.'],
+];
+function errorHint(raw) {
+  if (Object.hasOwn(HINTS, raw)) return HINTS[raw];
+  if (Object.hasOwn(EN, raw)) return null;
+  // ponytail: unknown texts get the bug report pointer, add a rule once a message turns up often
+  return HINT_RULES.find(([re]) => re.test(raw))?.[1] ?? 'Wenn das wieder passiert, schick bitte über "Fehler melden" einen Bericht.';
+}
+
 let errorShown = null;
 let errorClosed = null;
 // `again`: a message the device check repeats every 5 s; once closed it stays closed until its cause was gone
@@ -150,7 +172,8 @@ function showError(e, again = false) {
       clearError();
     });
     // first in the flow, so it floats to the top right corner
-    box.replaceChildren(close, ...(known ? [t(raw)] : [`${t('Fehler:')} `, part]));
+    const hint = errorHint(raw);
+    box.replaceChildren(close, ...(known ? [t(raw)] : [`${t('Fehler:')} `, part]), ...(hint ? [el('span', 'error-hint', t(hint))] : []));
   }
   errorShown = raw;
   box.hidden = false;
