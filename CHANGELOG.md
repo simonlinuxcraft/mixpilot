@@ -1,7 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.0.7 - Quieter nights, clearer errors
 
+- Error messages say what to try next, for example which picker to check or that a disk is full, and offer "Report a bug" with the message already filled in
+- When the audio core goes down, the window says so and that apps play directly on your device until it is back. If it does not come back within 30 seconds, it says what to do and offers a bug report
+- Messages that keep coming back no longer push aside one you are still reading, two of them no longer take turns forever after being closed, and moving a slider no longer makes them blink. After closing a message the focus goes to the current tab
+- The bug report asks what you would like to see in Mixpilot. A wish alone is enough to send it. A report sent by email stays short enough for mail programs
 - Night mode turns loud passages down again instead of making everything louder. Auto volume now works on each channel before its fader, so a lowered fader or a bass or EQ boost no longer makes it lift the whole mix by up to 12 dB. Night mode keeps dialogue where it is and lifts only quieter parts, by up to 8 dB
 - The input picker says "Choose a microphone" instead of staying blank when the Mixpilot microphone is the system default and no microphone was picked yet
 - Switching Autopilot off in the tray menu sticks, even while a fader in the window is being moved. Before, the window could switch it back on a moment later

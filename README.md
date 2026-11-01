@@ -136,7 +136,7 @@ The live tests run against a private PipeWire without hardware, never against yo
 
 ## Bugs and support
 
-Found a bug? Use the bug icon in the title bar, or open an issue here.
+Found a bug or missing something? Use the bug icon in the title bar, the report also takes wishes, or open an issue here.
 
 Mixpilot is free and stays free. If you want to support it, there is
 [Ko-fi](https://ko-fi.com/simonlinuxcraft). Nothing gets unlocked by it.

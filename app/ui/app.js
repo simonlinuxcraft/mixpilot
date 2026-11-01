@@ -1246,6 +1246,30 @@ async function runChecks() {
 // Shown once after an update. `version` stays null until the release that ships it sets it.
 const NEWS = [
   {
+    version: '0.0.7',
+    title: 'Ruhigere Nächte, klarere Fehler',
+    items: [
+      {
+        art: 'mixer',
+        tab: 'auto',
+        title: 'Nachtmodus macht leiser',
+        text: 'Laute Stellen werden nachts wieder leiser, statt dass alles lauter wird. Die Auto-Lautstärke arbeitet jetzt pro Kanal vor dem Regler, ein leiser Regler oder viel Bass bringt sie nicht mehr durcheinander.',
+      },
+      {
+        art: 'error',
+        tab: 'mixer',
+        title: 'Fehler mit Ausweg',
+        text: 'Fehlermeldungen sagen, was du tun kannst, und öffnen auf Wunsch den Fehlerbericht schon ausgefüllt. Fällt der Audio-Kern aus, sagt Mixpilot das sofort. Im Bericht kannst du jetzt auch Wünsche loswerden.',
+      },
+      {
+        art: 'mute',
+        tab: 'mic',
+        title: 'Mikrofon sagt Bescheid',
+        text: 'Kommt 10 Sekunden lang gar kein Ton vom Mikrofon, nennt die Mikrofon-Seite das Gerät und was du tun kannst. Ein Mikrofon, das immer wieder ausfällt, wird seltener neu versucht.',
+      },
+    ],
+  },
+  {
     version: '0.0.6',
     title: 'Leichter für alle',
     items: [
@@ -1474,7 +1498,13 @@ function resetArt(box) {
   return () => {};
 }
 
-const NEWS_ART = { mute: muteArt, mixer: mixerArt, monitor: monitorArt, reset: resetArt };
+function errorArt(box) {
+  const banner = mini(box, 0.5, 520, 'error');
+  banner.append(t('Wiedergabe fehlgeschlagen'), el('span', 'error-hint', t(HINTS['Wiedergabe fehlgeschlagen'])), el('button', 'error-report', t('Fehler melden')));
+  return () => {};
+}
+
+const NEWS_ART = { mute: muteArt, mixer: mixerArt, monitor: monitorArt, reset: resetArt, error: errorArt };
 let newsTimer = null;
 
 function openNews(entry) {
