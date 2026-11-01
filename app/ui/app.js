@@ -137,6 +137,7 @@ const HINTS = {
   'Aufnahme fehlgeschlagen': 'Prüf, ob ein Mikrofon angesteckt und oben bei Eingabe gewählt ist. In der Snap-Version muss außerdem der Mikrofon-Zugriff freigegeben sein, das zeigt die Einrichtung.',
   'Wiedergabe fehlgeschlagen': 'Prüf, ob oben bei Ausgabe dein Headset oder deine Lautsprecher gewählt sind.',
   'Lautstärke des Ausgabegeräts konnte nicht geändert werden': 'Das Gerät wurde vielleicht gerade getrennt. Wähle oben bei Ausgabe ein verbundenes Gerät.',
+  'Der Audio-Kern startet nicht wieder.': 'Klick oben auf "Audio-Kern starten". Hilft das nicht, schick einen Bericht mit dem Protokoll des Audio-Kerns, es zeigt meist die Ursache.',
 };
 const HINT_RULES = [
   [/os error 28/, 'Der Speicherplatz ist voll. Mach etwas Platz frei, sonst werden Einstellungen nicht gespeichert.'],
@@ -1132,8 +1133,26 @@ async function tickOnce() {
   paintApps();
 }
 
+const CORE_CRASHED = 'Der Audio-Kern ist ausgefallen. Mixpilot startet ihn gleich neu, bis dahin spielen Apps direkt über dein Gerät.';
+const CORE_DOWN = 'Der Audio-Kern startet nicht wieder.';
+let coreWasOn = false;
+let coreOffSince = 0;
 async function pollCore() {
   const on = await invoke('core_status').catch(() => false);
+  // only after it ran once: before that the setup check explains why it does not start
+  if (on) {
+    coreWasOn = true;
+    coreOffSince = 0;
+    clearError(CORE_CRASHED);
+    clearError(CORE_DOWN);
+  } else if (coreWasOn) {
+    coreOffSince ||= Date.now();
+    if (Date.now() - coreOffSince > 30000) {
+      showError(CORE_DOWN, true);
+    } else {
+      showError(CORE_CRASHED, true);
+    }
+  }
   const s = on ? t('Audio-Kern läuft') : t('Audio-Kern gestoppt');
   // live region: only a real change is announced
   if ($('core-status').textContent !== s) $('core-status').textContent = s;

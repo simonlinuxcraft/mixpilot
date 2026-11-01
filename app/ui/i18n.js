@@ -255,6 +255,9 @@ const EN = {
   'Mixpilot beenden': 'Quit Mixpilot',
   'Beendet auch den Audio-Kern. Apps spielen dann wieder direkt über dein Gerät.': 'Also stops the audio core. Apps then play directly on your device again.',
   // error hints
+  'Der Audio-Kern ist ausgefallen. Mixpilot startet ihn gleich neu, bis dahin spielen Apps direkt über dein Gerät.': 'The audio core went down. Mixpilot restarts it in a moment, until then apps play directly on your device.',
+  'Der Audio-Kern startet nicht wieder.': 'The audio core does not start again.',
+  'Klick oben auf "Audio-Kern starten". Hilft das nicht, schick einen Bericht mit dem Protokoll des Audio-Kerns, es zeigt meist die Ursache.': 'Click "Start audio core" at the top. If that does not help, send a report with the audio core log, it usually shows the cause.',
   'Die Installation ist unvollständig. Installier Mixpilot neu.': 'The installation is incomplete. Reinstall Mixpilot.',
   'Klick oben auf "Audio-Kern starten" und versuch es dann nochmal.': 'Click "Start audio core" at the top, then try again.',
   'Prüf, ob das Mikrofon noch angesteckt ist, und wähle es oben bei Eingabe neu aus.': 'Check that the microphone is still plugged in and choose it again under Input at the top.',
