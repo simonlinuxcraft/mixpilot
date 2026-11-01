@@ -732,6 +732,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         libc::sigaddset(&mut set, libc::SIGTERM);
         libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
     }
+    // without XDG_RUNTIME_DIR (su, startx without logind) libpipewire would only look in /run/pipewire
+    if std::env::var_os("XDG_RUNTIME_DIR").is_none() && std::env::var_os("PIPEWIRE_RUNTIME_DIR").is_none() {
+        let dir = runtime_dir();
+        if dir.join("pipewire-0").exists() {
+            // SAFETY: no other thread exists yet, PipeWire starts its own below
+            unsafe { std::env::set_var("PIPEWIRE_RUNTIME_DIR", dir) };
+        }
+    }
     pw::init();
     let mainloop = pw::main_loop::MainLoopRc::new(None)?;
     let context = pw::context::ContextRc::new(&mainloop, None)?;
