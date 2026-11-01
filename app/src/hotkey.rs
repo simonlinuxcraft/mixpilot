@@ -38,6 +38,8 @@ type Reply = Sender<Result<Status, String>>;
 static STATUS: Mutex<Status> = Mutex::new(Status { available: false, on: false, trigger: String::new() });
 /// a portal session with our key is open, even while the desktop has no key set for it
 static BOUND: AtomicBool = AtomicBool::new(false);
+/// The portal left the bus; set by the signal handler, read by every wait on it.
+static GONE: AtomicBool = AtomicBool::new(false);
 static CMDS: OnceLock<Mutex<Sender<(Cmd, Reply)>>> = OnceLock::new();
 
 pub fn status() -> Status {
@@ -48,7 +50,7 @@ pub fn status() -> Status {
 pub fn send(cmd: Cmd) -> Result<Status, String> {
     let (tx, rx) = channel();
     CMDS.get().ok_or("Globale Tastenkürzel sind nicht verfügbar")?.lock().unwrap().send((cmd, tx)).map_err(|e| e.to_string())?;
-    rx.recv_timeout(ANSWER_TIMEOUT + Duration::from_secs(5)).map_err(|e| e.to_string())?
+    rx.recv_timeout(ANSWER_TIMEOUT + Duration::from_secs(5)).map_err(|_| "Keine Antwort vom Desktop".to_string())?
 }
 
 /// Runs the portal session on its own thread. `restore` re-binds the key chosen in an earlier run.
@@ -117,11 +119,10 @@ fn run(rx: &Receiver<(Cmd, Reply)>, restore: bool, on_press: fn()) -> String {
         Err(e) => return e.to_string(),
     };
     STATUS.lock().unwrap().available = true;
-    let gone = Arc::new(AtomicBool::new(false));
-    let g = gone.clone();
-    let _ = c.add_match(MatchRule::new_signal(DBUS, "NameOwnerChanged").with_strict_sender(DBUS), move |(name,): (String,), _, _| {
+    GONE.store(false, Ordering::Relaxed);
+    let _ = c.add_match(MatchRule::new_signal(DBUS, "NameOwnerChanged").with_strict_sender(DBUS), |(name,): (String,), _, _| {
         if name == DEST {
-            g.store(true, Ordering::Relaxed);
+            GONE.store(true, Ordering::Relaxed);
         }
         true
     });
@@ -163,7 +164,7 @@ fn run(rx: &Receiver<(Cmd, Reply)>, restore: bool, on_press: fn()) -> String {
         if let Err(e) = c.process(Duration::from_millis(200)) {
             return e.to_string();
         }
-        if gone.load(Ordering::Relaxed) {
+        if GONE.load(Ordering::Relaxed) {
             return "the portal went away".into();
         }
     }
@@ -259,7 +260,7 @@ fn request(c: &Connection, owner: &str, call: impl FnOnce(PropMap) -> Result<(),
     opts.insert("handle_token".into(), Variant(Box::new(token)));
     let sent = call(opts).map_err(|e| e.to_string());
     let start = Instant::now();
-    while sent.is_ok() && slot.lock().unwrap().is_none() && start.elapsed() < ANSWER_TIMEOUT {
+    while sent.is_ok() && slot.lock().unwrap().is_none() && start.elapsed() < ANSWER_TIMEOUT && !GONE.load(Ordering::Relaxed) {
         c.process(Duration::from_millis(200)).map_err(|e| e.to_string())?;
     }
     let _ = c.remove_match(m);
@@ -333,12 +334,16 @@ mod tests {
         changes: Arc<Mutex<Vec<String>>>,
         binds: Arc<AtomicU32>,
         app: Arc<Mutex<Option<String>>>,
+        // accepts calls but never answers them, like an open dialog
+        silent: Arc<AtomicBool>,
         thread: Option<std::thread::JoinHandle<()>>,
     }
     impl Portal {
         fn start() -> Portal {
             let (stop, press, binds, app) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicU32::new(0)), Arc::new(AtomicU32::new(0)), Arc::new(Mutex::new(None)));
             let (s, p, b, a) = (stop.clone(), press.clone(), binds.clone(), app.clone());
+            let silent = Arc::new(AtomicBool::new(false));
+            let quiet = silent.clone();
             let changes = Arc::new(Mutex::new(Vec::<String>::new()));
             let ch = changes.clone();
             let (ready_tx, ready_rx) = channel();
@@ -356,6 +361,9 @@ mod tests {
                             let token = opts.get("handle_token").and_then(|v| v.0.as_str()).unwrap().to_string();
                             let path = format!("{OBJ}/request/{who}/{token}");
                             let _ = c.send(m.method_return().append1(Path::from(path.clone())));
+                            if quiet.load(Ordering::SeqCst) {
+                                return;
+                            }
                             let mut sig = Message::new_signal(path, "org.freedesktop.portal.Request", "Response").unwrap().append2(0u32, results);
                             sig.set_destination(Some(from.clone().into()));
                             let _ = c.send(sig);
@@ -398,7 +406,7 @@ mod tests {
                 }
             });
             ready_rx.recv().unwrap();
-            Portal { stop, press, changes, binds, app, thread: Some(thread) }
+            Portal { stop, press, changes, binds, app, silent, thread: Some(thread) }
         }
 
         /// The key as the desktop's settings now show it, "" when it was removed there.
@@ -474,5 +482,15 @@ mod tests {
         assert!(until(2000, || !status().on));
         portal.change("Ctrl+K");
         assert!(until(2000, || status().on && status().trigger == "Ctrl+K"), "key set again but shown as off");
+
+        // the portal goes away while its dialog is open: an answer in seconds, not after five minutes
+        send(Cmd::Off).unwrap();
+        portal.silent.store(true, Ordering::SeqCst);
+        let waiting = std::thread::spawn(|| send(Cmd::On));
+        std::thread::sleep(Duration::from_millis(500));
+        let t = Instant::now();
+        drop(portal);
+        assert!(waiting.join().unwrap().is_err());
+        assert!(t.elapsed() < Duration::from_secs(3), "{:?}", t.elapsed());
     }
 }
