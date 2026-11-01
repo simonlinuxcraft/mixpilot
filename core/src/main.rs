@@ -1204,6 +1204,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ticks until a microphone that moved to another device counts as a new session
     let mic_moved = Cell::new(0u32);
     let (mic_on, mic_idle, mic_wait, mic_pinned) = (Cell::new(false), Cell::new(0u32), Cell::new(0u32), Cell::new(false));
+    // failures in a row, the retry doubles up to 64 s; a minute of running or another input resets it
+    let (mic_fails, mic_ok, mic_for) = (Cell::new(0u32), Cell::new(0u32), RefCell::new(String::new()));
     let mic_test = state_dir.join("mic-test");
     let viewer = state_dir.join("viewer");
     let state_file = state_dir.join("state.json");
@@ -1336,11 +1338,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if mic_on.get() && mic_pinned.get() && rcfg.borrow().input.is_empty() {
             close_mic();
         }
+        let mic_backoff = || {
+            mic_wait.set(RETRY_TICKS << mic_fails.get().min(5));
+            mic_fails.set(mic_fails.get() + 1);
+            mic_ok.set(0);
+        };
         if merr.replace(false) {
             close_mic();
-            mic_wait.set(RETRY_TICKS);
+            mic_backoff();
         }
         mic_wait.set(mic_wait.get().saturating_sub(1));
+        if mic_on.get() {
+            mic_ok.set(mic_ok.get() + 1);
+            if mic_ok.get() >= 60_000 / TICK_MS as u32 {
+                mic_fails.set(0);
+            }
+        }
+        if *mic_for.borrow() != rcfg.borrow().input {
+            *mic_for.borrow_mut() = rcfg.borrow().input.clone();
+            mic_fails.set(0);
+            mic_wait.set(0);
+        }
         // without a real microphone WirePlumber hands the capture stream an output's monitor, which
         // would put the whole mix into the call as an echo
         let has_source = devs.borrow().values().any(|d| !d.sink && !d.name.starts_with("mixpilot"));
@@ -1368,7 +1386,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     Err(e) => {
                         log!("microphone connect failed: {e}");
-                        mic_wait.set(RETRY_TICKS);
+                        mic_backoff();
                     }
                 }
             }

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- A microphone that keeps failing is retried less and less often, up to once a minute, instead of every 2 seconds. Before, the window showed "Microphone active" over and over and the log grew by about 1800 lines an hour
 - No more click on every channel when an app with low latency starts, for example a call or a game. Cutting the buffer down to the shorter cycle now blends like the other cuts
 - The microphone page says when no sound at all has come from the microphone for 10 seconds, for example when the system default is an empty jack, and names the device
 - Bug reports from the Snap name the real distribution instead of "Ubuntu Core", say which Snap permissions are not connected, and list the default devices, all outputs and microphones and the current microphone level
