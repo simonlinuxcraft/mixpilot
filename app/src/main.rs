@@ -850,13 +850,29 @@ fn post_bug_report(report: &BugReport) -> Result<(), String> {
     Err(answer.get("message").and_then(Value::as_str).map(str::to_string).filter(|m| !m.is_empty()).unwrap_or(if curl.is_empty() { format!("HTTP {code}") } else { curl }))
 }
 
+fn url_encode(t: &str) -> String {
+    t.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
+}
+
+/// Encoded text cut at `limit` bytes, never inside a character: mail programs cut very long mailto links.
+fn url_encode_capped(t: &str, limit: usize) -> String {
+    let mut out = String::new();
+    for c in t.chars() {
+        let e = url_encode(c.encode_utf8(&mut [0; 4]));
+        if out.len() + e.len() > limit {
+            break;
+        }
+        out += &e;
+    }
+    out
+}
+
 /// Fallback without a configured endpoint: the user's mail program with the report filled in.
 #[tauri::command(async)]
 fn mail_bug_report(report: BugReport) {
-    let enc = |t: &str| t.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect::<String>();
-    // mail programs cut very long mailto links, so the log is left out here
-    let body: String = report_text(&BugReport { include_log: false, ..report }).chars().take(6000).collect();
-    let url = format!("mailto:{BUG_EMAIL}?subject={}&body={}", enc(&format!("Mixpilot Bug Report v{}", env!("CARGO_PKG_VERSION"))), enc(&body));
+    // the log is left out here, it would not fit
+    let body = url_encode_capped(&report_text(&BugReport { include_log: false, ..report }), 8000);
+    let url = format!("mailto:{BUG_EMAIL}?subject={}&body={body}", url_encode(&format!("Mixpilot Bug Report v{}", env!("CARGO_PKG_VERSION"))));
     let _ = Command::new("xdg-open").arg(url).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
 }
 
@@ -864,7 +880,8 @@ fn mail_bug_report(report: BugReport) {
 async fn open_bug_report(app: AppHandle, errors: Option<String>) -> Result<(), String> {
     let errors = Value::String(errors.unwrap_or_default());
     if let Some(w) = app.get_webview_window("bugreport") {
-        let _ = w.eval(format!("prefillErrors({errors})"));
+        // still loading: the function is not there yet
+        let _ = w.eval(format!("window.prefillErrors?.({errors})"));
         bring_to_front(&w);
         return Ok(());
     }
@@ -1235,6 +1252,13 @@ mod tests {
         assert!(dev_core(std::path::Path::new("/home/u/mixpilot/app/target/release")).is_some());
         assert!(dev_core(std::path::Path::new("/tmp/.mount_MixpiXy/usr/bin")).is_none());
         assert!(dev_core(std::path::Path::new("/usr/bin")).is_none());
+    }
+
+    #[test]
+    fn mail_body_stays_short_and_whole() {
+        let b = url_encode_capped(&"ü\n".repeat(5000), 8000);
+        assert!(b.len() <= 8000 && b.len() > 7990 && !b.ends_with("%C3"));
+        assert_eq!(url_encode_capped("a b", 100), "a%20b");
     }
 
     #[test]

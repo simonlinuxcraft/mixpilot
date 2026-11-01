@@ -52,6 +52,8 @@ function prefillErrors(text) {
   $('errors').value = [$('errors').value.trim(), text].filter(Boolean).join('\n');
   $('err-field').hidden = false;
   $('add-errors').hidden = true;
+  // a report already sent or failed: back to the form, the new error is the next report
+  if ($('form').hidden) show('form');
 }
 $('desc').addEventListener('input', sync);
 $('wish').addEventListener('input', sync);
