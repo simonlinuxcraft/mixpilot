@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Switching Autopilot off in the tray menu sticks, even while a fader in the window is being moved. Before, the window could switch it back on a moment later
 - When sending a bug report fails on a server error page, the window names the HTTP status instead of an empty reason
 - The .deb package names what Mixpilot needs (PipeWire library and tools, pactl, pgrep, curl, xdg-open), so apt installs it along instead of the audio core failing to start
 - A microphone that keeps failing is retried less and less often, up to once a minute, instead of every 2 seconds. Before, the window showed "Microphone active" over and over and the log grew by about 1800 lines an hour

@@ -911,7 +911,10 @@ function bindDevices() {
 
 // ---------- automation ----------
 function buildAuto() {
-  bindSwitch('auto', () => cfg.auto, (v) => (cfg.auto = v));
+  bindSwitch('auto', () => cfg.auto, (v) => {
+    cfg.auto = v;
+    invoke('set_auto', { on: v }).catch(showError);
+  });
   painters.push(() => {
     $('led').className = cfg.auto ? 'led on' : 'led';
     $('auto-note').textContent = cfg.auto

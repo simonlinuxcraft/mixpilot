@@ -212,8 +212,8 @@ fn update_config(f: impl FnOnce(&mut Value)) -> Result<(), String> {
     write_config(&cfg)
 }
 
-/// The window sends its whole copy. It shows the microphone mute but never sets it, the tray and
-/// the push-to-mute key own it, so the value on disk wins over a copy that may be a second old.
+/// The window sends its whole copy. The microphone mute (tray, push-to-mute key) and Autopilot (tray,
+/// `set_auto`) are written elsewhere, so the value on disk wins over a copy that may be a second old.
 #[tauri::command]
 fn set_config(mut cfg: Value) -> Result<(), String> {
     if !cfg.is_object() {
@@ -226,6 +226,9 @@ fn set_config(mut cfg: Value) -> Result<(), String> {
 
 /// The core's note about a replaced broken file stays until the window has shown it and sends null.
 fn keep_from_disk(cfg: &mut Value, disk: Option<&Value>) {
+    if let Some(auto) = disk.and_then(|c| c.get("auto")).cloned() {
+        cfg["auto"] = auto;
+    }
     if let Some(mute) = disk.and_then(|c| c.pointer("/mic/mute")).cloned()
         && cfg["mic"].is_object()
     {
@@ -242,6 +245,12 @@ fn keep_from_disk(cfg: &mut Value, disk: Option<&Value>) {
         }
         Some(_) => {}
     }
+}
+
+/// The window's Autopilot switch. It goes past `set_config`, which keeps the value on disk.
+#[tauri::command]
+fn set_auto(on: bool) -> Result<(), String> {
+    update_config(|c| c["auto"] = Value::Bool(on))
 }
 
 /// Write to a temp file and rename, so the core never reads a half-written file. No fsync, it costs
@@ -1112,6 +1121,7 @@ fn main() {
             ensure_core,
             get_config,
             set_config,
+            set_auto,
             list_devices,
             set_default_source,
             get_state,
@@ -1240,14 +1250,15 @@ mod tests {
 
     #[test]
     fn mute_and_reset_note_come_from_disk() {
-        let disk = serde_json::json!({ "mic": { "mute": true }, "config_reset": "/c/config.json.broken-1" });
-        let mut cfg = serde_json::json!({ "mic": { "mute": false } });
+        let disk = serde_json::json!({ "auto": false, "mic": { "mute": true }, "config_reset": "/c/config.json.broken-1" });
+        // Autopilot switched off in the tray while the window still holds it on
+        let mut cfg = serde_json::json!({ "auto": true, "mic": { "mute": false } });
         keep_from_disk(&mut cfg, Some(&disk));
         assert_eq!(cfg, disk);
         // shown: the window sends null and the note goes
-        let mut cfg = serde_json::json!({ "mic": { "mute": true }, "config_reset": null });
+        let mut cfg = serde_json::json!({ "auto": false, "mic": { "mute": true }, "config_reset": null });
         keep_from_disk(&mut cfg, Some(&disk));
-        assert_eq!(cfg, serde_json::json!({ "mic": { "mute": true } }));
+        assert_eq!(cfg, serde_json::json!({ "auto": false, "mic": { "mute": true } }));
         // unreadable file on disk: the window's copy is written as it is
         let mut cfg = serde_json::json!({ "mic": { "mute": false } });
         keep_from_disk(&mut cfg, None);
