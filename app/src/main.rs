@@ -635,7 +635,7 @@ fn setup_check() -> Setup {
 fn snap_missing() -> Vec<String> {
     ["pipewire", "audio-record"]
         .iter()
-        .filter(|plug| !Command::new("snapctl").args(["is-connected", plug]).status().is_ok_and(|s| s.success()))
+        .filter(|plug| !output_within(Command::new("snapctl").args(["is-connected", plug]), CMD_LIMIT).is_ok_and(|o| o.status.success()))
         .map(|p| p.to_string())
         .collect()
 }
@@ -677,10 +677,12 @@ fn app_info() -> AppInfo {
 /// What a report carries when "Systeminfos anhängen" is on. Nothing personal beyond the device names.
 fn system_info() -> String {
     // inside a snap /etc/os-release is the base (Ubuntu Core), the host's lives under hostfs
-    let os = std::fs::read_to_string("/var/lib/snapd/hostfs/etc/os-release")
-        .or_else(|_| std::fs::read_to_string("/etc/os-release"))
-        .ok()
-        .and_then(|t| t.lines().find(|l| l.starts_with("PRETTY_NAME=")).map(|l| l[12..].trim_matches('"').to_string()))
+    let os = ["/var/lib/snapd/hostfs/etc/os-release", "/etc/os-release"]
+        .iter()
+        .find_map(|p| {
+            let t = std::fs::read_to_string(p).ok()?;
+            t.lines().find_map(|l| l.strip_prefix("PRETTY_NAME=")).map(|v| v.trim_matches('"').to_string())
+        })
         .unwrap_or_else(|| "unknown".into());
     let kernel = unsafe {
         let mut u: libc::utsname = std::mem::zeroed();
@@ -718,8 +720,8 @@ fn system_info() -> String {
         if core_running() { "running" } else { "not running" },
         pick("/output"),
         pick("/input"),
-        devs["default_sink"],
-        devs["default_source"],
+        devs["default_sink"].as_str().unwrap_or("-"),
+        devs["default_source"].as_str().unwrap_or("-"),
         names("sinks"),
         names("sources"),
         pick("/mic"),

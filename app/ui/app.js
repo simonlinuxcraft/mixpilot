@@ -1023,13 +1023,14 @@ function paintEvents(events) {
 let micLevel = 0;
 let micInLevel = 0;
 let clippedAt = 0;
-let soundAt = 0;
+let soundAt = Date.now();
 let shownHint = '';
 function paintGainHint(hint) {
-  if (hint === shownHint) return;
-  shownHint = hint;
   // with Mixpilot as the system default the core records some other source, name unknown here
   const mic = devices.sources.find((d) => d.name === (cfg.input || devices.default_source) && !d.name.startsWith('mixpilot'));
+  const key = hint + (mic ? mic.name : '');
+  if (key === shownHint) return;
+  shownHint = key;
   $('gain-hint').classList.toggle('alert', hint !== '');
   $('gain-hint').textContent = hint === 'clip'
     ? t('Dein Mikrofon übersteuert, bevor Mixpilot den Ton bekommt. Stell den Mikrofonpegel in den Sound-Einstellungen deines Systems leiser.')
@@ -1038,13 +1039,18 @@ function paintGainHint(hint) {
       : t('Beim Sprechen sollte "Eingang" fast bis ans rechte Ende reichen, aber nicht ganz.');
 }
 async function tick() {
-  if (document.hidden) return;
+  if (document.hidden) {
+    // the silence count restarts when the window comes back
+    soundAt = Date.now();
+    return;
+  }
   let s;
   try {
     s = await invoke('get_state', { micTest: tab === 'mic' });
   } catch {
     // no core, no level: an old clip warning would stay forever
     clippedAt = 0;
+    soundAt = Date.now();
     paintGainHint('');
     return;
   }
