@@ -1397,7 +1397,7 @@ function resetArt(box) {
   dialog.append(
     el('h1', null, t('Einstellungen ersetzt')),
     el('p', null, t('Die Einstellungsdatei konnte nicht gelesen werden. Mixpilot hat sie gesichert und eine funktionierende Fassung geladen. Prüf kurz, ob alles passt.')),
-    el('p', 'mono path', '/home/simon/.config/mixpilot/config.json.broken-20261016-121503'),
+    el('p', 'mono path', '~/.config/mixpilot/config.json.broken-20261016-121503'),
     actions,
   );
   return () => {};
