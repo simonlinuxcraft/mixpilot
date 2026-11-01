@@ -864,6 +864,8 @@ function fillSelect(select, list, current, defaultName, allowDefault) {
   const def = list.find((d) => d.name === defaultName);
   select.replaceChildren();
   if (allowDefault) select.add(new Option(def ? t('System-Standard ({0})', def.description) : t('System-Standard'), ''));
+  // without the default entry an empty choice would leave the picker blank
+  else if (!current) select.add(Object.assign(new Option(t('Mikrofon wählen'), ''), { disabled: true }));
   for (const d of list) select.add(new Option(d.description, d.name));
   if (current && !list.some((d) => d.name === current)) select.add(new Option(t('{0} (nicht verbunden)', current), current));
   select.value = current;

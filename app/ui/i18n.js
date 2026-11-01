@@ -49,6 +49,7 @@ const EN = {
   '{0} stumm': 'Mute {0}',
   'Systemlautstärke deines Ausgabegeräts': 'System volume of your output device',
   '{0} Lautstärke': '{0} volume',
+  'Mikrofon wählen': 'Choose a microphone',
   'Klang {0}: {1}, wählen': 'Sound {0}: {1}, choose',
   'Bearbeiten…': 'Edit…',
   'Master in Prozent': 'Master in percent',
