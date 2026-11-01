@@ -153,24 +153,29 @@ function errorHint(raw) {
 }
 
 let errorShown = null;
-let errorClosed = null;
-// `again`: a message the device check repeats every 5 s; once closed it stays closed until its cause was gone
-function showError(e, again = false) {
+let errorRank = 0;
+const errorClosed = new Set();
+// `again`: the rank of a message a poll repeats (higher wins); once closed it stays closed until its cause was gone.
+// A poll only replaces a lower polled message, and a one-shot error only when the audio core is down (rank 3+).
+function showError(e, again = 0) {
   const raw = String(e);
-  if (again && raw === errorClosed) return;
   const box = $('error');
+  if (again && errorClosed.has(raw)) return;
+  if (again && !box.hidden && errorShown !== raw && (errorRank ? errorRank > again : again < 3)) return;
   // a raw message from pactl or the system gets a translated frame and is marked as English
   const known = Object.hasOwn(EN, raw);
   // rewriting the same text would make screen readers repeat the alert
   if (box.hidden || errorShown !== raw) {
+    const hadFocus = box.contains(document.activeElement);
     const part = el('span', null, raw);
     part.lang = 'en';
     const close = el('button', 'error-close', '×');
     close.type = 'button';
     close.setAttribute('aria-label', t('Meldung schließen'));
     close.addEventListener('click', () => {
-      errorClosed = errorShown;
+      errorClosed.add(errorShown);
       clearError();
+      document.querySelector('.tab[aria-selected="true"]')?.focus();
     });
     // first in the flow, so it floats to the top right corner
     const hint = errorHint(raw);
@@ -179,18 +184,21 @@ function showError(e, again = false) {
     report.addEventListener('click', () => invoke('open_bug_report', { errors: raw }).catch(console.error));
     // no report button for messages that already say how the user fixes it
     box.replaceChildren(close, ...(known ? [t(raw)] : [`${t('Fehler:')} `, part]), ...(hint ? [el('span', 'error-hint', t(hint)), report] : []));
+    if (hadFocus) close.focus();
   }
   errorShown = raw;
+  errorRank = again;
   box.hidden = false;
 }
 
 // hides the banner, or with a message only while it still shows that one: once its cause is gone
 // it must not stay up until some unrelated setting is saved
 function clearError(raw) {
-  if (raw !== undefined && raw === errorClosed) errorClosed = null;
+  if (raw !== undefined) errorClosed.delete(raw);
   if (raw !== undefined && errorShown !== raw) return;
   $('error').hidden = true;
   errorShown = null;
+  errorRank = 0;
 }
 
 // A dialog takes the focus and makes the window behind it inert; closing gives the focus back.
@@ -267,7 +275,7 @@ function save() {
     invoke('set_config', { cfg }).then(() => {
       // the null went out once; sending it again would delete a later note before it is shown
       if (ack && cfg.config_reset === null) delete cfg.config_reset;
-      clearError();
+      if (!errorRank) clearError();
     }, showError);
   };
   if (Date.now() - lastSave > 60) run();
@@ -914,9 +922,9 @@ function paintDevices() {
   const loop = !c.output && devices.default_sink.startsWith('mixpilot_');
   const loopMsg = 'Dein System-Standard für die Ausgabe ist ein Mixpilot-Kanal. Wähle oben bei Ausgabe dein Headset oder deine Lautsprecher.';
   const dupMsg = 'Mixpilot läuft zweimal, zum Beispiel als Snap und als deb. Beende oder deinstalliere eine der beiden Versionen, sonst gibt es jeden Kanal doppelt.';
-  if (loop) showError(loopMsg, true);
+  if (loop) showError(loopMsg, 1);
   else clearError(loopMsg);
-  if (devices.duplicate) showError(dupMsg, true);
+  if (devices.duplicate) showError(dupMsg, 2);
   else clearError(dupMsg);
 }
 
@@ -1148,9 +1156,9 @@ async function pollCore() {
   } else if (coreWasOn) {
     coreOffSince ||= Date.now();
     if (Date.now() - coreOffSince > 30000) {
-      showError(CORE_DOWN, true);
+      showError(CORE_DOWN, 4);
     } else {
-      showError(CORE_CRASHED, true);
+      showError(CORE_CRASHED, 3);
     }
   }
   const s = on ? t('Audio-Kern läuft') : t('Audio-Kern gestoppt');
