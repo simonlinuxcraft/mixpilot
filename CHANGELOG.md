@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- When sending a bug report fails on a server error page, the window names the HTTP status instead of an empty reason
 - The .deb package names what Mixpilot needs (PipeWire library and tools, pactl, pgrep, curl, xdg-open), so apt installs it along instead of the audio core failing to start
 - A microphone that keeps failing is retried less and less often, up to once a minute, instead of every 2 seconds. Before, the window showed "Microphone active" over and over and the log grew by about 1800 lines an hour
 - No more click on every channel when an app with low latency starts, for example a call or a game. Cutting the buffer down to the shorter cycle now blends like the other cuts

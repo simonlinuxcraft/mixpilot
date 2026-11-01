@@ -807,7 +807,7 @@ fn post_bug_report(report: &BugReport) -> Result<(), String> {
         payload["email"] = Value::String(report.email.trim().into());
     }
     let mut child = Command::new("curl")
-        .args(["-sS", "-m", "20", "-X", "POST", "-H", "Content-Type: application/json", "-H", "Accept: application/json", "--data-binary", "@-", url])
+        .args(["-sS", "-m", "20", "-w", "\n%{http_code}", "-X", "POST", "-H", "Content-Type: application/json", "-H", "Accept: application/json", "--data-binary", "@-", url])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -817,12 +817,15 @@ fn post_bug_report(report: &BugReport) -> Result<(), String> {
         stdin.write_all(payload.to_string().as_bytes()).map_err(|e| e.to_string())?;
     }
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    let answer: Value = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);
+    let text = String::from_utf8_lossy(&out.stdout);
+    let (body, code) = text.rsplit_once('\n').unwrap_or((&text, ""));
+    let answer: Value = serde_json::from_str(body).unwrap_or(Value::Null);
     if out.status.success() && answer.get("success").and_then(Value::as_bool) == Some(true) {
-        Ok(())
-    } else {
-        Err(answer.get("message").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| String::from_utf8_lossy(&out.stderr).trim().to_string()))
+        return Ok(());
     }
+    // an error page from the proxy has no JSON message and curl itself succeeded
+    let curl = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    Err(answer.get("message").and_then(Value::as_str).map(str::to_string).filter(|m| !m.is_empty()).unwrap_or(if curl.is_empty() { format!("HTTP {code}") } else { curl }))
 }
 
 /// Fallback without a configured endpoint: the user's mail program with the report filled in.

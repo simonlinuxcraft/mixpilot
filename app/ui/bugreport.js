@@ -66,7 +66,7 @@ $('send').addEventListener('click', async () => {
     await invoke('send_bug_report', { report: report() });
     show('done');
   } catch (e) {
-    $('fail-text').textContent = t('Grund: {0}. Du kannst den Bericht stattdessen per E-Mail schicken, er ist schon ausgefüllt.', t(String(e)));
+    $('fail-text').textContent = t('Grund: {0}. Du kannst den Bericht stattdessen per E-Mail schicken, er ist schon ausgefüllt.', t(String(e)).replace(/\.$/, ''));
     $('mail-addr').textContent = info.email;
     show('fail');
   } finally {
