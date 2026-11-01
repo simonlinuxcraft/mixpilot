@@ -84,7 +84,7 @@ option { background: var(--panel2); color: var(--text); }
 
 .tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 4px; padding: 8px 16px; border-bottom: 1px solid var(--line); background: #141619; }
 .field.inline { flex-direction: row; align-items: center; gap: 8px; margin-left: 10px; }
-.field.inline select { width: 200px; min-height: 36px; }
+.field.inline select { width: clamp(200px, 50vw - 300px, 340px); min-height: 36px; }
 .tab { min-height: 42px; padding: 0 18px; border: none; border-radius: 8px; background: transparent; color: var(--muted); font-weight: 600; cursor: pointer; box-shadow: inset 0 -2px 0 transparent; }
 .tablist { display: flex; gap: 4px; }
 .tab[aria-selected="true"] { background: var(--panel2); color: var(--text); box-shadow: inset 0 -2px 0 var(--acc2); }
