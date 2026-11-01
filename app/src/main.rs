@@ -861,14 +861,16 @@ fn mail_bug_report(report: BugReport) {
 }
 
 #[tauri::command]
-async fn open_bug_report(app: AppHandle) -> Result<(), String> {
+async fn open_bug_report(app: AppHandle, errors: Option<String>) -> Result<(), String> {
+    let errors = Value::String(errors.unwrap_or_default());
     if let Some(w) = app.get_webview_window("bugreport") {
+        let _ = w.eval(format!("prefillErrors({errors})"));
         bring_to_front(&w);
         return Ok(());
     }
     WebviewWindowBuilder::new(&app, "bugreport", WebviewUrl::App("bugreport.html".into()))
         .title(tr("Fehler melden", "Report a bug"))
-        .initialization_script(lang_script())
+        .initialization_script(format!("{}window.BUG_ERRORS = {errors};", lang_script()))
         .inner_size(580.0, 680.0)
         .min_inner_size(420.0, 480.0)
         .zoom_hotkeys_enabled(true)
@@ -1054,7 +1056,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         "bug" => {
             let a = app.clone();
             tauri::async_runtime::spawn(async move {
-                let _ = open_bug_report(a).await;
+                let _ = open_bug_report(a, None).await;
             });
         }
         // GTK already flipped the check mark; if the settings cannot be written, flip it back

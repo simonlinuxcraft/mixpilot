@@ -173,7 +173,11 @@ function showError(e, again = false) {
     });
     // first in the flow, so it floats to the top right corner
     const hint = errorHint(raw);
-    box.replaceChildren(close, ...(known ? [t(raw)] : [`${t('Fehler:')} `, part]), ...(hint ? [el('span', 'error-hint', t(hint))] : []));
+    const report = el('button', 'error-report', t('Fehler melden'));
+    report.type = 'button';
+    report.addEventListener('click', () => invoke('open_bug_report', { errors: raw }).catch(console.error));
+    // no report button for messages that already say how the user fixes it
+    box.replaceChildren(close, ...(known ? [t(raw)] : [`${t('Fehler:')} `, part]), ...(hint ? [el('span', 'error-hint', t(hint)), report] : []));
   }
   errorShown = raw;
   box.hidden = false;

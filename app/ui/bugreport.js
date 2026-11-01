@@ -46,6 +46,13 @@ $('add-errors').addEventListener('click', () => {
   $('add-errors').hidden = true;
   $('errors').focus();
 });
+// the error banner in the main window hands over its message
+function prefillErrors(text) {
+  if (!text || $('errors').value.includes(text)) return;
+  $('errors').value = [$('errors').value.trim(), text].filter(Boolean).join('\n');
+  $('err-field').hidden = false;
+  $('add-errors').hidden = true;
+}
 $('desc').addEventListener('input', sync);
 $('wish').addEventListener('input', sync);
 $('win-close').addEventListener('click', () => win?.close());
@@ -77,6 +84,7 @@ $('send').addEventListener('click', async () => {
 
 (async () => {
   translatePage();
+  prefillErrors(window.BUG_ERRORS);
   info = await invoke('bug_info').catch(() => info);
   $('send').textContent = info.can_send ? t('Senden') : t('Per E-Mail senden');
   $('footer-note').textContent = info.can_send ? '' : t('Öffnet dein Mailprogramm, Empfänger {0}', info.email);
