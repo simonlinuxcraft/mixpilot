@@ -855,7 +855,8 @@ function paintDefaultMic() {
     : t('Apps nutzen gerade: {0}. Setze Mixpilot als Standard oder wähle in Discord und Co. "Mixpilot Mikrofon".', cur ? cur.description : devices.default_source || t('unbekannt'));
   $('make-default').disabled = isDefault;
   $('make-default').textContent = isDefault ? t('Ist Standard') : t('Als Standard-Mikrofon setzen');
-  const mic = devices.sources.find((s) => s.name === (cfg.input || devices.default_source));
+  const micName = cfg.input || devices.default_source;
+  const mic = micName !== 'mixpilot_mic' && devices.sources.find((s) => s.name === micName);
   $('mic-name').textContent = mic ? mic.description.toUpperCase() : '';
 }
 
