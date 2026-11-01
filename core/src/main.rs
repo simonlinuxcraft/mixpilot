@@ -133,6 +133,10 @@ const LV_MIC_RAW: usize = 2 * N + 4;
 #[derive(Default)]
 struct Levels([AtomicU32; 2 * N + 5]);
 
+/// Output cycles per channel that found a block only partly written: the sink ran after the output.
+/// PipeWire does not see these, pw-top shows no error for them.
+static SHORT: [AtomicU32; N] = [const { AtomicU32::new(0) }; N];
+
 impl Levels {
     fn raise(&self, i: usize, v: f32) {
         if v.is_finite() {
@@ -890,8 +894,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let monitor = p.monitor.load(Relaxed);
             let targets: [f32; N] = std::array::from_fn(|i| load(&p.gain[i]));
             let mut locked: [_; N] = std::array::from_fn(|i| lock(&out_rings[i]));
-            for (b, ring) in mix.backlog.iter_mut().zip(locked.iter_mut()) {
+            for (c, (b, ring)) in mix.backlog.iter_mut().zip(locked.iter_mut()).enumerate() {
                 b.trim(ring, frames);
+                if (1..frames * 2).contains(&ring.len()) {
+                    SHORT[c].fetch_add(1, Relaxed);
+                }
             }
             let mut mon = lock(&mon_ring);
             let mon_play = if monitor {
@@ -1281,6 +1288,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // night mode, checked every 10 s
         if tick.is_multiple_of(200) {
+            let short: Vec<String> = (0..N).filter_map(|c| match SHORT[c].swap(0, Relaxed) {
+                0 => None,
+                n => Some(format!("{} {n}", CHANNELS[c].id)),
+            }).collect();
+            if !short.is_empty() {
+                log!("short cycles in 10 s: {}", short.join(", "));
+            }
             let n = rcfg.borrow().auto && rcfg.borrow().night.active_at(local_time().0);
             if n != nightc.get() {
                 nightc.set(n);
