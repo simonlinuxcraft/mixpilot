@@ -160,9 +160,13 @@ fn watch_core() {
     std::thread::spawn(|| {
         let mut delay = Duration::from_secs(2);
         let mut last = Instant::now();
+        // after a suspend the state is hours old until the core's next write; only two checks in a row count
+        let mut was_hung = false;
         loop {
             std::thread::sleep(Duration::from_secs(2));
-            let hung = core_hung();
+            let now_hung = core_hung();
+            let hung = now_hung && was_hung;
+            was_hung = now_hung;
             if core_running() && !hung {
                 if last.elapsed() > Duration::from_secs(60) {
                     delay = Duration::from_secs(2);
