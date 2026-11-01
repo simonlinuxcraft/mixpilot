@@ -724,7 +724,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     pw::init();
     let mainloop = pw::main_loop::MainLoopRc::new(None)?;
     let context = pw::context::ContextRc::new(&mainloop, None)?;
-    let core = context.connect_rc(None)?;
+    let core = context.connect_rc(None).inspect_err(|e| {
+        let snap = if std::env::var_os("SNAP").is_some() { ", is the pipewire plug connected?" } else { "" };
+        log!("cannot connect to PipeWire ({e}){snap}");
+    })?;
 
     let path = config::path();
     let state_dir = runtime_dir().join("mixpilot");
