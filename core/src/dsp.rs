@@ -235,11 +235,12 @@ impl Leveler {
         Self { ms: 0.0, detect: coef(80.0), attack: coef(attack_ms), release: coef(release_ms), gain_db: 0.0, threshold, ratio, makeup, floor_db: -55.0, hold: false }
     }
 
-    /// 0 off, 1 soft, 2 night
+    /// 0 off, 1 soft, 2 night. Night keeps dialogue (about -24 dBFS RMS) where it is, so it lifts
+    /// only what is quieter and never makes a film louder overall.
     pub fn output_mode(mode: u32) -> Option<Self> {
         match mode {
             1 => Some(Self::new(-24.0, 2.5, 5.0, 60.0, 900.0)),
-            2 => Some(Self::new(-34.0, 5.0, 12.0, 25.0, 400.0)),
+            2 => Some(Self::new(-34.0, 5.0, 8.0, 25.0, 400.0)),
             _ => None,
         }
     }
@@ -775,7 +776,7 @@ mod tests {
         let quiet = sine_gain(|x| x * 0.03 * lv.gain(x * 0.03), 440.0) / 0.03;
         let mut lv = Leveler::output_mode(2).unwrap();
         let loud = sine_gain(|x| x * 0.9 * lv.gain(x * 0.9), 440.0) / 0.9;
-        assert!(quiet > 2.0, "quiet gain {quiet}");
+        assert!(quiet > 1.6, "quiet gain {quiet}");
         assert!(loud < 0.8, "loud gain {loud}");
         let mut lv = Leveler::output_mode(1).unwrap();
         let silence = sine_gain(|x| x * 0.0005 * lv.gain(x * 0.0005), 440.0) / 0.0005;

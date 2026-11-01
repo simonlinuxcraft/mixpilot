@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Night mode turns loud passages down again instead of making everything louder. Auto volume now works on each channel before its fader, so a lowered fader or a bass or EQ boost no longer makes it lift the whole mix by up to 12 dB. Night mode keeps dialogue where it is and lifts only quieter parts, by up to 8 dB
 - The input picker says "Choose a microphone" instead of staying blank when the Mixpilot microphone is the system default and no microphone was picked yet
 - Switching Autopilot off in the tray menu sticks, even while a fader in the window is being moved. Before, the window could switch it back on a moment later
 - When sending a bug report fails on a server error page, the window names the HTTP status instead of an empty reason

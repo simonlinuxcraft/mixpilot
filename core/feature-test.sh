@@ -276,6 +276,13 @@ cfg '{"media":{"eq":"flat"},"chat":{"eq":"voice"},"eq_edits":{"flat":[0,0,0,0,-1
 after=$(rms mp_test_out "-P {stream.capture.sink=true}")
 check "a tuned built-in preset applies too ($before -> $after)" "$(less "$after" "$(python3 -c "print($before*0.5)")")"
 cfg '{"eq_edits":{}}'
+cfg '{"media":{"volume":50}}'
+day=$(rms mp_test_out "-P {stream.capture.sink=true}")
+h=$(date +%-H)
+cfg "{\"auto\":true,\"night\":{\"enabled\":true,\"from\":$h,\"to\":$(((h + 1) % 24))}}"
+night=$(rms mp_test_out "-P {stream.capture.sink=true}")
+check "night mode turns a loud tone down behind a low fader ($day -> $night)" "$(less "$night" "$(python3 -c "print($day*0.7)")")"
+cfg '{"night":{"enabled":false},"media":{"volume":100}}'
 
 echo "-- automatic sorting"
 check "media tone sits in Media" "$([ "$(links_of mp_test_media)" = "mixpilot_media " ] && echo ok || echo "linked to: $(links_of mp_test_media)")"

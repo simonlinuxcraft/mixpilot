@@ -188,7 +188,8 @@ struct Mix {
     bass_db: f32,
     bass_head: f32,
     clarity: [Biquad; 2],
-    leveler: Option<Leveler>,
+    /// auto volume per channel, before the fader: the fader and the EQ headroom must not change what it does
+    leveler: [Option<Leveler>; N],
     lev_mode: u32,
     limiter: Limiter,
     backlog: [Backlog; N],
@@ -250,7 +251,7 @@ impl Mix {
             bass_db: 0.0,
             bass_head: 0.0,
             clarity: [clarity(); 2],
-            leveler: None,
+            leveler: [None; N],
             lev_mode: 0,
             limiter: Limiter::new(-1.0, 120.0),
             backlog: Default::default(),
@@ -284,13 +285,15 @@ impl Mix {
             self.lev_mode = mode;
             // the new mode starts from the gain the old one reached; off glides back to 0 dB first
             let next = Leveler::output_mode(mode).unwrap_or_else(Leveler::neutral);
-            self.leveler = Some(match &self.leveler {
-                Some(old) => next.follow(old),
-                None => next,
-            });
+            for lev in &mut self.leveler {
+                *lev = Some(match lev {
+                    Some(old) => next.follow(old),
+                    None => next,
+                });
+            }
         }
-        if mode == 0 && self.leveler.as_ref().is_some_and(Leveler::settled) {
-            self.leveler = None;
+        if mode == 0 && self.leveler.iter().flatten().all(Leveler::settled) {
+            self.leveler = [None; N];
         }
     }
 }
@@ -930,6 +933,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if c == 1 && targets[1] > 0.0 {
                         chat = a.abs().max(b.abs());
                     }
+                    let k = mix.leveler[c].as_mut().map_or(1.0, |lev| lev.gain(a.abs().max(b.abs())));
+                    let (a, b) = (a * k, b * k);
                     // flat bands are skipped, a flat preset costs nothing
                     let [el, er] = &mut mix.ch_eq[c];
                     ch[c] = (el.run(a * g), er.run(b * g));
@@ -951,11 +956,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let (cl, cr) = (mix.clarity[0].run(l), mix.clarity[1].run(r));
                 if clarity {
                     (l, r) = (cl, cr);
-                }
-                if let Some(lev) = &mut mix.leveler {
-                    let g = lev.gain(l.abs().max(r.abs()));
-                    l *= g;
-                    r *= g;
                 }
                 if mon_play {
                     let v = mon_el.next(&mut mon);
