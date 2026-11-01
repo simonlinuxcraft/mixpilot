@@ -711,6 +711,13 @@ fn write_atomic(path: &Path, data: &[u8]) {
     }
 }
 
+/// Setup failed once streams exist. Returning would drop their listeners before the streams
+/// disconnect, while the data thread may still call them; the server cleans up after the exit.
+fn die(e: impl std::fmt::Display) -> ! {
+    log!("setup failed: {e}");
+    std::process::exit(1)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let Some(_lock) = single_instance(&runtime_dir().join("mixpilot.lock")) else {
         log!("already running");
@@ -783,7 +790,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 *pw::keys::NODE_LINK_GROUP => "mixpilot",
                 "priority.session" => "0",
             },
-        )?;
+        ).unwrap_or_else(|e| die(e));
         let rings = rings.clone();
         let fail = fail.clone();
         let l = stream
@@ -811,13 +818,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ring.drain(..n);
                 ring.extend(bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)));
             })
-            .register()?;
+            .register().unwrap_or_else(|e| die(e));
         stream.connect(
             spa::utils::Direction::Input,
             None,
             StreamFlags::MAP_BUFFERS | StreamFlags::RT_PROCESS,
             &mut [Pod::from_bytes(&stereo).unwrap()],
-        )?;
+        ).unwrap_or_else(|e| die(e));
         streams.push(stream);
         listeners.push(l);
     }
@@ -837,7 +844,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             *pw::keys::NODE_LINK_GROUP => "mixpilot",
             *pw::keys::APP_NAME => "Mixpilot",
         },
-    )?;
+    ).unwrap_or_else(|e| die(e));
     // No output device at all (headset unplugged, nothing else present) puts the stream into an
     // error state it never leaves by itself. Not fatal: the timer reconnects until one appears.
     let out_retry = Rc::new(Cell::new(false));
@@ -956,13 +963,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             *chunk.stride_mut() = 8;
             *chunk.size_mut() = (frames * 8) as u32;
         })
-        .register()?;
+        .register().unwrap_or_else(|e| die(e));
     output.connect(
         spa::utils::Direction::Output,
         None,
         StreamFlags::AUTOCONNECT | StreamFlags::MAP_BUFFERS | StreamFlags::RT_PROCESS,
         &mut [Pod::from_bytes(&stereo).unwrap()],
-    )?;
+    ).unwrap_or_else(|e| die(e));
 
     // Virtual microphone "Mixpilot Mikrofon": apps record the processed voice from here.
     // Its own node.group and link group keep the microphone's clock apart from the output's:
@@ -980,7 +987,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             *pw::keys::NODE_LINK_GROUP => "mixpilot-mic",
             "priority.session" => "0",
         },
-    )?;
+    ).unwrap_or_else(|e| die(e));
     // A stream node runs even without links (it always gets a driver), so its state says nothing
     // about listeners. Links whose output is this node are counted instead (registry below).
     let src_links: Rc<RefCell<HashSet<u32>>> = Rc::new(RefCell::new(HashSet::new()));
@@ -1009,13 +1016,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             *chunk.stride_mut() = 4;
             *chunk.size_mut() = (frames * 4) as u32;
         })
-        .register()?;
+        .register().unwrap_or_else(|e| die(e));
     mic_src.connect(
         spa::utils::Direction::Output,
         None,
         StreamFlags::MAP_BUFFERS | StreamFlags::RT_PROCESS,
         &mut [Pod::from_bytes(&mono).unwrap()],
-    )?;
+    ).unwrap_or_else(|e| die(e));
 
     // Microphone capture. Only connected while something needs it (an app records from
     // "Mixpilot Mikrofon", monitoring is on, or the app's microphone page is open), so the
@@ -1033,7 +1040,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             *pw::keys::NODE_LINK_GROUP => "mixpilot-mic",
             *pw::keys::APP_NAME => "Mixpilot",
         },
-    )?;
+    ).unwrap_or_else(|e| die(e));
     let mic_err = Rc::new(Cell::new(false));
     let mut mic_dsp = MicDsp::new();
     let (me, p, lv, mo, mm) = (mic_err.clone(), params.clone(), levels.clone(), mic_out.clone(), mic_mon.clone());
@@ -1075,10 +1082,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             lv.raise(LV_MIC_IN, in_peak);
             lv.raise(LV_MIC_RAW, raw);
         })
-        .register()?;
+        .register().unwrap_or_else(|e| die(e));
 
     // Auto-routing binds each new stream once: the registry global lacks application.process.binary.
-    let registry = core.get_registry_rc()?;
+    let registry = core.get_registry_rc().unwrap_or_else(|e| die(e));
     let reg_weak = registry.downgrade();
     let router: Rc<RefCell<Router>> = Rc::new(RefCell::new(Router::default()));
     let apps: Rc<RefCell<HashMap<u32, App>>> = Rc::new(RefCell::new(HashMap::new()));
