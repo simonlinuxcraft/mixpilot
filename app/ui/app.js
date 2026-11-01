@@ -1594,8 +1594,6 @@ async function init() {
 // "Fertig" waits for the core, which creates the settings.
 async function openSetup() {
   openDialog($('setup'));
-  await refreshDevices();
-  await runChecks();
   $('recheck').addEventListener('click', async () => {
     await invoke('ensure_core').catch(() => {});
     await sleep(800);
@@ -1617,6 +1615,9 @@ async function openSetup() {
     await init();
     $('autostart').setAttribute('aria-checked', String(await invoke('get_autostart')));
   });
+  // after the handlers, so a failing check never leaves the buttons dead
+  await refreshDevices();
+  await runChecks().catch(showError);
 }
 
 async function main() {
