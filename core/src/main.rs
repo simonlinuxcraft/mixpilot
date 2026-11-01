@@ -213,23 +213,27 @@ impl Backlog {
         // more than three cycles is a backlog, not a buffer
         let cap = frames * 2 * 3;
         if ring.len() > cap {
-            ring.drain(..ring.len() - cap);
+            cut(ring, ring.len() - cap);
         }
         self.min = self.min.min(ring.len().saturating_sub(frames * 2));
         self.cycles += 1;
         if self.cycles == 100 {
             // what never drained in 100 cycles is delay; a little stays for jitter, pairs stay whole
-            let n = self.min.saturating_sub(256) & !1;
-            // the first 64 frames after the cut blend in from the audio they replace, so it does not click
-            let fade = 64.min((ring.len() - n) / 2);
-            for k in 0..fade * 2 {
-                let (old, w) = (ring[k], (k / 2) as f32 / fade as f32);
-                ring[n + k] = old + (ring[n + k] - old) * w;
-            }
-            ring.drain(..n);
+            cut(ring, self.min.saturating_sub(256) & !1);
             *self = Self::default();
         }
     }
+}
+
+/// Drops the oldest `n` samples (even). The first 64 frames after the cut blend in from the audio
+/// they replace, so it does not click.
+fn cut(ring: &mut VecDeque<f32>, n: usize) {
+    let fade = 64.min((ring.len() - n) / 2);
+    for k in 0..fade * 2 {
+        let (old, w) = (ring[k], (k / 2) as f32 / fade as f32);
+        ring[n + k] = old + (ring[n + k] - old) * w;
+    }
+    ring.drain(..n);
 }
 
 impl Mix {
@@ -1650,6 +1654,20 @@ mod tests {
             b.trim(&mut ring, q);
             out.extend(ring.drain(..q * 2).step_by(2));
             write(&mut ring, q);
+        }
+        let worst = out.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
+        assert!(worst < 0.06, "{worst}");
+        // a quantum drop from 1024 to 256 cuts down to three short cycles, blended the same way
+        let (mut b, mut ring) = (super::Backlog::default(), VecDeque::new());
+        write(&mut ring, q);
+        b.trim(&mut ring, q);
+        let mut out: Vec<f32> = ring.drain(..q * 2).step_by(2).collect();
+        write(&mut ring, q);
+        for _ in 0..8 {
+            b.trim(&mut ring, 256);
+            assert!(ring.len() <= 256 * 2 * 3);
+            out.extend(ring.drain(..256 * 2).step_by(2));
+            write(&mut ring, 256);
         }
         let worst = out.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
         assert!(worst < 0.06, "{worst}");
