@@ -628,16 +628,16 @@ fn setup_check() -> Setup {
         .into_iter()
         .collect();
     let snap = std::env::var_os("SNAP").is_some();
-    let snap_missing = if snap {
-        ["pipewire", "audio-record"]
-            .iter()
-            .filter(|plug| !Command::new("snapctl").args(["is-connected", plug]).status().is_ok_and(|s| s.success()))
-            .map(|p| p.to_string())
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let snap_missing = if snap { snap_missing() } else { Vec::new() };
     Setup { pipewire, conflicts, snap, snap_missing }
+}
+
+fn snap_missing() -> Vec<String> {
+    ["pipewire", "audio-record"]
+        .iter()
+        .filter(|plug| !Command::new("snapctl").args(["is-connected", plug]).status().is_ok_and(|s| s.success()))
+        .map(|p| p.to_string())
+        .collect()
 }
 
 /// Ko-fi opens in the user's browser, payment never touches Mixpilot.
@@ -676,7 +676,9 @@ fn app_info() -> AppInfo {
 
 /// What a report carries when "Systeminfos anhängen" is on. Nothing personal beyond the device names.
 fn system_info() -> String {
-    let os = std::fs::read_to_string("/etc/os-release")
+    // inside a snap /etc/os-release is the base (Ubuntu Core), the host's lives under hostfs
+    let os = std::fs::read_to_string("/var/lib/snapd/hostfs/etc/os-release")
+        .or_else(|_| std::fs::read_to_string("/etc/os-release"))
         .ok()
         .and_then(|t| t.lines().find(|l| l.starts_with("PRETTY_NAME=")).map(|l| l[12..].trim_matches('"').to_string()))
         .unwrap_or_else(|| "unknown".into());
@@ -686,15 +688,29 @@ fn system_info() -> String {
         std::ffi::CStr::from_ptr(u.release.as_ptr()).to_string_lossy().into_owned()
     };
     let env = |k: &str| std::env::var(k).unwrap_or_else(|_| "-".into());
-    let package = package();
+    let package = match package() {
+        "snap" => match snap_missing() {
+            m if m.is_empty() => "snap (plugs connected)".to_string(),
+            m => format!("snap (not connected: {})", m.join(", ")),
+        },
+        p => p.to_string(),
+    };
     let server = output_within(Command::new("pactl").arg("info").env("LC_ALL", "C"), CMD_LIMIT)
         .ok()
         .and_then(|o| String::from_utf8_lossy(&o.stdout).lines().find(|l| l.contains("Server Name")).map(|l| l.trim().to_string()))
         .unwrap_or_else(|| "pactl info: n/a".into());
     let cfg = get_config().unwrap_or(Value::Null);
     let pick = |p: &str| cfg.pointer(p).map(|v| v.to_string()).unwrap_or_else(|| "-".into());
+    let devs = list_devices();
+    let names = |k: &str| devs[k].as_array().map(|a| a.iter().filter_map(|d| d["name"].as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+    // -1 when the core has the microphone closed
+    let mic_raw = std::fs::read(runtime_dir().join("mixpilot").join("state.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .map(|s| s.pointer("/levels/mic_raw").map(|v| v.to_string()).unwrap_or_else(|| "-".into()))
+        .unwrap_or_else(|| "-".into());
     format!(
-        "Mixpilot: {}\nOS: {os}\nKernel: {kernel}\nDesktop: {} | Session: {} | GDK_BACKEND: {}\nPackage: {package}\nAudio: {server}\nCore: {}\nOutput: {} | Input: {}\nMic: {}\nAutopilot: {} | Auto volume: {}",
+        "Mixpilot: {}\nOS: {os}\nKernel: {kernel}\nDesktop: {} | Session: {} | GDK_BACKEND: {}\nPackage: {package}\nAudio: {server}\nCore: {}\nOutput: {} | Input: {}\nDefault sink: {} | Default source: {}\nSinks: {}\nSources: {}\nMic level (raw): {mic_raw}\nMic: {}\nAutopilot: {} | Auto volume: {}",
         env!("CARGO_PKG_VERSION"),
         env("XDG_CURRENT_DESKTOP"),
         env("XDG_SESSION_TYPE"),
@@ -702,6 +718,10 @@ fn system_info() -> String {
         if core_running() { "running" } else { "not running" },
         pick("/output"),
         pick("/input"),
+        devs["default_sink"],
+        devs["default_source"],
+        names("sinks"),
+        names("sources"),
         pick("/mic"),
         pick("/auto"),
         pick("/auto_volume"),
