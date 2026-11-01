@@ -7,6 +7,7 @@ const flag = (id) => $(id).getAttribute('aria-checked') === 'true';
 const report = () => ({
   description: $('desc').value,
   errors: $('errors').value,
+  wish: $('wish').value,
   email: $('email').value,
   include_info: flag('info'),
   include_log: flag('log'),
@@ -27,11 +28,11 @@ function paintPreview() {
   const parts = [];
   if (flag('info')) parts.push('--- System ---\n' + info.info);
   if (flag('log')) parts.push(t('--- Protokoll ---') + '\n' + (info.log || t('(leer)')));
-  $('preview').textContent = parts.join('\n\n') || t('Nur deine Beschreibung.');
+  $('preview').textContent = parts.join('\n\n') || t('Nur deine Texte.');
 }
 
 function sync() {
-  $('send').disabled = $('desc').value.trim().length < 5;
+  $('send').disabled = $('desc').value.trim().length < 5 && $('wish').value.trim().length < 5;
 }
 
 for (const id of ['info', 'log']) {
@@ -46,6 +47,7 @@ $('add-errors').addEventListener('click', () => {
   $('errors').focus();
 });
 $('desc').addEventListener('input', sync);
+$('wish').addEventListener('input', sync);
 $('win-close').addEventListener('click', () => win?.close());
 $('cancel').addEventListener('click', () => win?.close());
 $('close-done').addEventListener('click', () => win?.close());

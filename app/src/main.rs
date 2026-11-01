@@ -756,6 +756,8 @@ async fn bug_info() -> Result<BugInfo, String> {
 struct BugReport {
     description: String,
     errors: String,
+    #[serde(default)]
+    wish: String,
     email: String,
     include_info: bool,
     include_log: bool,
@@ -768,6 +770,9 @@ fn report_text(r: &BugReport) -> String {
     let mut t = r.description.trim().to_string();
     if !r.errors.trim().is_empty() {
         t += &format!("\n\n--- Error messages ---\n{}", r.errors.trim());
+    }
+    if !r.wish.trim().is_empty() {
+        t += &format!("\n\n--- Wish ---\n{}", r.wish.trim());
     }
     if r.include_info {
         t += &format!("\n\n--- System ---\n{}", r.info.trim());
@@ -786,8 +791,8 @@ async fn send_bug_report(report: BugReport) -> Result<(), String> {
 }
 
 fn post_bug_report(report: &BugReport) -> Result<(), String> {
-    if report.description.trim().len() < 5 {
-        return Err("Bitte beschreib kurz, was passiert ist.".into());
+    if report.description.trim().len() < 5 && report.wish.trim().len() < 5 {
+        return Err("Bitte beschreib kurz, was passiert ist oder was du dir wünschst.".into());
     }
     let Some(url) = BUG_PROXY else { return Err("no-endpoint".into()) };
     let mut payload = serde_json::json!({
@@ -1207,6 +1212,7 @@ mod tests {
         let r = BugReport {
             description: "it broke".into(),
             errors: String::new(),
+            wish: "more presets".into(),
             email: String::new(),
             include_info: true,
             include_log: false,
@@ -1214,7 +1220,7 @@ mod tests {
             log: "core: as shown".into(),
         };
         let t = report_text(&r);
-        assert!(t.contains("OS: as shown") && !t.contains("core: as shown"));
+        assert!(t.contains("OS: as shown") && !t.contains("core: as shown") && t.contains("--- Wish ---\nmore presets"));
     }
 
     #[test]

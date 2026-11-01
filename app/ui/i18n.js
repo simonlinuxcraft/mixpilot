@@ -196,7 +196,7 @@ const EN = {
   'Audio-Kern nicht gefunden': 'Audio core not found',
   'Standard-Mikrofon konnte nicht gesetzt werden': 'Could not set the default microphone',
   'Lautstärke des Ausgabegeräts konnte nicht geändert werden': 'Could not change the volume of the output device',
-  'Bitte beschreib kurz, was passiert ist.': 'Please briefly describe what happened.',
+  'Bitte beschreib kurz, was passiert ist oder was du dir wünschst.': 'Please briefly describe what happened or what you would like.',
   // autopilot events from the core
   'Easy Effects läuft und zieht alle Apps zu sich, bitte schließen': 'Easy Effects is running and pulls all apps to itself, please close it',
   '{0} in {1} einsortiert': '{0} sorted into {1}',
@@ -257,7 +257,9 @@ const EN = {
   'Danke, dass du hilfst, Mixpilot besser zu machen. Beschreib kurz, was passiert ist und was du erwartet hättest.': 'Thanks for helping to make Mixpilot better. Briefly describe what happened and what you expected.',
   'Was ist passiert?': 'What happened?',
   'Zum Beispiel: Nach dem Einstecken des Headsets ist der Chat-Kanal stumm, obwohl Discord läuft.': 'For example: after plugging in the headset, the Chat channel is silent although Discord is running.',
-  'Mindestens 5 Zeichen, dann lässt sich der Bericht senden.': 'At least 5 characters, then the report can be sent.',
+  'Mindestens 5 Zeichen hier oder beim Wunsch, dann lässt sich der Bericht senden.': 'At least 5 characters here or in the wish, then the report can be sent.',
+  'Was wünschst du dir an Mixpilot, was soll dazukommen? (optional)': 'What would you like to see in Mixpilot, what should be added? (optional)',
+  'Zum Beispiel: ein eigener Kanal für Musik oder ein Preset für Streams.': 'For example: a separate channel for music or a preset for streaming.',
   '+ Fehlermeldungen hinzufügen': '+ Add error messages',
   'Fehlermeldungen': 'Error messages',
   'Text aus einer Fehlermeldung, falls vorhanden': 'Text from an error message, if any',
@@ -280,7 +282,7 @@ const EN = {
   'Wird gesendet …': 'Sending …',
   '--- Protokoll ---': '--- Log ---',
   '(leer)': '(empty)',
-  'Nur deine Beschreibung.': 'Only your description.',
+  'Nur deine Texte.': 'Only your texts.',
   'Grund: {0}. Du kannst den Bericht stattdessen per E-Mail schicken, er ist schon ausgefüllt.': 'Reason: {0}. You can send the report by email instead, it is already filled in.',
   'Öffnet dein Mailprogramm, Empfänger {0}': 'Opens your mail program, recipient {0}',
 };

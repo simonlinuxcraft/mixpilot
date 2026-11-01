@@ -23,12 +23,14 @@
       <p class="hint">Danke, dass du hilfst, Mixpilot besser zu machen. Beschreib kurz, was passiert ist und was du erwartet hättest.</p>
       <label class="lbl" for="desc">Was ist passiert?</label>
       <textarea id="desc" rows="4" aria-describedby="desc-hint" placeholder="Zum Beispiel: Nach dem Einstecken des Headsets ist der Chat-Kanal stumm, obwohl Discord läuft."></textarea>
-      <p class="hint" id="desc-hint">Mindestens 5 Zeichen, dann lässt sich der Bericht senden.</p>
+      <p class="hint" id="desc-hint">Mindestens 5 Zeichen hier oder beim Wunsch, dann lässt sich der Bericht senden.</p>
       <button type="button" class="linkbtn" id="add-errors">+ Fehlermeldungen hinzufügen</button>
       <div id="err-field" hidden>
         <label class="lbl" for="errors">Fehlermeldungen</label>
         <textarea id="errors" rows="3" class="mono-area" placeholder="Text aus einer Fehlermeldung, falls vorhanden"></textarea>
       </div>
+      <label class="lbl" for="wish">Was wünschst du dir an Mixpilot, was soll dazukommen? (optional)</label>
+      <textarea id="wish" rows="2" placeholder="Zum Beispiel: ein eigener Kanal für Musik oder ein Preset für Streams."></textarea>
       <label class="lbl" for="email">Deine E-Mail für Rückfragen (optional)</label>
       <input type="email" id="email" class="text" placeholder="name@beispiel.de" autocomplete="email">
       <div class="group">
