@@ -129,9 +129,7 @@ fn start_core() -> Result<(), String> {
     std::fs::create_dir_all(&log_dir).map_err(|e| e.to_string())?;
     // appended, so the last words of a crashed core survive the watchdog's next attempts
     let log_path = log_dir.join("core.log");
-    if std::fs::metadata(&log_path).is_ok_and(|m| m.len() > 256 * 1024) {
-        let _ = std::fs::rename(&log_path, log_dir.join("core.log.1"));
-    }
+    rotate_log(&log_dir);
     let log = std::fs::OpenOptions::new().create(true).append(true).open(&log_path).map_err(|e| e.to_string())?;
     let mut child = Command::new(bin)
         .stdin(Stdio::null())
@@ -156,6 +154,16 @@ fn start_core() -> Result<(), String> {
 /// and nothing else would bring it back; a hung one is replaced, also with the window closed. Waits
 /// longer each time it dies young, so a system without PipeWire or a snap without its permissions is
 /// not hammered.
+/// Copy and truncate instead of rename: a running core keeps writing to the same file, appending.
+fn rotate_log(log_dir: &std::path::Path) {
+    let log_path = log_dir.join("core.log");
+    if std::fs::metadata(&log_path).is_ok_and(|m| m.len() > 256 * 1024)
+        && std::fs::copy(&log_path, log_dir.join("core.log.1")).is_ok()
+    {
+        let _ = std::fs::OpenOptions::new().write(true).open(&log_path).and_then(|f| f.set_len(0));
+    }
+}
+
 fn watch_core() {
     std::thread::spawn(|| {
         let mut delay = Duration::from_secs(2);
@@ -164,6 +172,7 @@ fn watch_core() {
         let mut was_hung = false;
         loop {
             std::thread::sleep(Duration::from_secs(2));
+            rotate_log(&env_dir("XDG_STATE_HOME", ".local/state").join("mixpilot"));
             let now_hung = core_hung();
             let hung = now_hung && was_hung;
             was_hung = now_hung;
@@ -1250,6 +1259,20 @@ mod tests {
         assert!(t.elapsed() < Duration::from_secs(1));
         let out = output_within(Command::new("echo").arg("hi"), CMD_LIMIT).unwrap();
         assert_eq!(String::from_utf8_lossy(&out.stdout), "hi\n");
+    }
+
+    #[test]
+    fn log_rotates_under_a_running_writer() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("mixpilot-log-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut core = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("core.log")).unwrap();
+        core.write_all(&vec![b'a'; 300 * 1024]).unwrap();
+        rotate_log(&dir);
+        core.write_all(b"after\n").unwrap();
+        assert_eq!(std::fs::metadata(dir.join("core.log.1")).unwrap().len(), 300 * 1024);
+        assert_eq!(std::fs::read(dir.join("core.log")).unwrap(), b"after\n");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
