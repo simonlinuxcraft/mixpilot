@@ -1793,6 +1793,7 @@ name = "mixpilot"
 version = "0.0.7"
 dependencies = [
  "dbus",
+ "gtk",
  "libc",
  "serde",
  "serde_json",

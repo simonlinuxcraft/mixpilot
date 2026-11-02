@@ -6,7 +6,6 @@
 
 :root {
   color-scheme: dark;
-  --bg: #0b0c0e;
   --win: #111316;
   --panel: #16181b;
   --panel2: #1d2024;
@@ -32,7 +31,7 @@
   --num: "Barlow Semi Condensed", system-ui, "Liberation Sans", Arial, sans-serif;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, "Cantarell", sans-serif; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; color: var(--text); font: 14px/1.4 system-ui, "Cantarell", sans-serif; }
 button, select, input { font: inherit; color: inherit; }
 button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--acc2); outline-offset: 2px; }
 [hidden] { display: none !important; }
@@ -40,7 +39,9 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 h1, h2, h3 { margin: 0; }
 
 /* the app never scrolls as a whole; controls take the mouse wheel instead */
-.app { height: 100vh; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; background: var(--win); border: 1px solid #2a2e34; }
+.app { height: 100vh; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; background: var(--win); border: 1px solid #2a2e34; border-radius: 12px; }
+/* square while maximized or fullscreen */
+.square .app, .square .overlay { border-radius: 0; }
 
 /* own title bar: frameless window, drag anywhere that is not a button */
 /* one row at 100 %; zoomed in, the window buttons wrap into a second row instead of leaving the window */
@@ -230,7 +231,7 @@ main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 20px; displa
 .btn.primary { background: var(--acc); color: var(--acc-ink); border-color: var(--acc); }
 .btn:disabled { opacity: 0.5; cursor: default; }
 
-.overlay { position: fixed; inset: 0; background: rgba(5, 6, 7, 0.82); display: flex; align-items: center; justify-content: center; padding: 16px; overflow: auto; }
+.overlay { position: fixed; inset: 0; border-radius: 12px; background: rgba(5, 6, 7, 0.82); display: flex; align-items: center; justify-content: center; padding: 16px; overflow: auto; }
 .dialog { width: 100%; max-width: 580px; max-height: 100%; overflow: auto; padding: 24px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line2); display: flex; flex-direction: column; gap: 10px; }
 .dialog h1 { margin: 0; font-size: 22px; }
 .dialog p { margin: 0; }

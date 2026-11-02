@@ -19,7 +19,7 @@
         "create": false,
         "decorations": false,
         "zoomHotkeysEnabled": true,
-        "backgroundColor": "#111316"
+        "transparent": true
       }
     ],
     "security": {

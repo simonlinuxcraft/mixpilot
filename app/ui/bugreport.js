@@ -60,6 +60,11 @@ $('wish').addEventListener('input', sync);
 $('win-close').addEventListener('click', () => win?.close());
 $('cancel').addEventListener('click', () => win?.close());
 $('close-done').addEventListener('click', () => win?.close());
+if (win) {
+  const square = async () => document.documentElement.classList.toggle('square', (await win.isMaximized()) || (await win.isFullscreen()));
+  square();
+  win.onResized(square);
+}
 $('back').addEventListener('click', () => { show('form'); $('desc').focus(); });
 $('mail').addEventListener('click', () => invoke('mail_bug_report', { report: report() }));
 

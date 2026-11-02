@@ -1582,6 +1582,11 @@ function bindChrome() {
   $('win-min').addEventListener('click', () => win?.minimize());
   $('win-max').addEventListener('click', () => win?.toggleMaximize());
   $('win-close').addEventListener('click', () => win?.close());
+  if (win) {
+    const square = async () => document.documentElement.classList.toggle('square', (await win.isMaximized()) || (await win.isFullscreen()));
+    square();
+    win.onResized(square);
+  }
   const info = $('support-info');
   $('support').addEventListener('click', () => openDialog(info));
   $('support-cancel').addEventListener('click', () => closeDialog(info));

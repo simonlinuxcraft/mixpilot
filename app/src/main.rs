@@ -892,7 +892,7 @@ async fn open_bug_report(app: AppHandle, errors: Option<String>) -> Result<(), S
         .min_inner_size(420.0, 480.0)
         .zoom_hotkeys_enabled(true)
         .decorations(false)
-        .background_color(tauri::window::Color(0x11, 0x13, 0x16, 0xff))
+        .transparent(true)
         // shown only once the page is loaded: showing it earlier blocks the whole app up to 500 ms
         .visible(false)
         .on_page_load(|w, p| {
@@ -901,7 +901,7 @@ async fn open_bug_report(app: AppHandle, errors: Option<String>) -> Result<(), S
             }
         })
         .build()
-        .map(|_| ())
+        .map(|w| hide_menubar(&w))
         .map_err(|e| e.to_string())
 }
 
@@ -920,11 +920,23 @@ fn show_window(app: &AppHandle) {
         bring_to_front(&w);
         return;
     }
-    if let Some(cfg) = app.config().app.windows.first()
-        && let Err(e) = WebviewWindowBuilder::from_config(app, cfg).and_then(|b| b.initialization_script(lang_script()).build())
-    {
-        eprintln!("mixpilot: window: {e}");
+    if let Some(cfg) = app.config().app.windows.first() {
+        match WebviewWindowBuilder::from_config(app, cfg).and_then(|b| b.initialization_script(lang_script()).build()) {
+            Ok(w) => hide_menubar(&w),
+            Err(e) => eprintln!("mixpilot: window: {e}"),
+        }
     }
+}
+
+// GtkApplicationWindow keeps an empty 1 px menu bar over the page, which shows as a line once the window is transparent
+fn hide_menubar(w: &tauri::WebviewWindow) {
+    use gtk::prelude::ApplicationWindowExt;
+    let w2 = w.clone();
+    let _ = w.run_on_main_thread(move || {
+        if let Ok(g) = w2.gtk_window() {
+            g.set_show_menubar(false);
+        }
+    });
 }
 
 fn ipc_socket() -> PathBuf {
