@@ -304,7 +304,7 @@ main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 20px; displa
 #licenses { height: 380px; max-height: none; overflow-wrap: anywhere; }
 
 /* what's new, in the look of the store banner */
-.dialog.news { max-width: 720px; padding: 0; gap: 0; }
+.dialog.news { max-width: 920px; padding: 0; gap: 0; }
 .news-head { display: flex; align-items: center; gap: 22px; padding: 16px 24px; background: var(--well); border-bottom: 1px solid var(--line); }
 .news-brand { flex: 1; display: flex; align-items: center; gap: 16px; min-width: 0; }
 #news-logo svg { display: block; width: 64px; height: 64px; }
@@ -321,6 +321,7 @@ main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 20px; displa
 .news-item { display: grid; grid-template-columns: 300px 1fr; gap: 18px; align-items: center; padding: 10px 12px; border-radius: 10px; background: var(--panel2); }
 .news-text { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .news-text h2 { margin: 0; font-size: 17px; }
+.news-text ul { padding-left: 16px; line-height: 1.5; }
 /* 24 px high so the text-sized button is still easy to hit */
 .mic-state { min-height: 24px; padding: 0; border: none; background: none; color: inherit; font-size: inherit; }
 .mic-state:disabled { cursor: default; }

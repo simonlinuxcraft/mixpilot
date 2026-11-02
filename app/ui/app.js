@@ -1251,21 +1251,37 @@ const NEWS = [
     items: [
       {
         art: 'mixer',
-        tab: 'auto',
-        title: 'Nachtmodus macht leiser',
-        text: 'Laute Stellen werden nachts wieder leiser, statt dass alles lauter wird. Die Auto-Lautstärke arbeitet jetzt pro Kanal vor dem Regler, ein leiser Regler oder viel Bass bringt sie nicht mehr durcheinander.',
-      },
-      {
-        art: 'error',
-        tab: 'mixer',
-        title: 'Fehler mit Ausweg',
-        text: 'Fehlermeldungen sagen, was du tun kannst, und öffnen auf Wunsch den Fehlerbericht schon ausgefüllt. Fällt der Audio-Kern aus, sagt Mixpilot das sofort. Im Bericht kannst du jetzt auch Wünsche loswerden.',
+        title: 'Sauberer Klang, leisere Nächte',
+        points: [
+          'Nachts werden laute Stellen leiser, statt dass alles bis zu 12 dB lauter wird',
+          'Bass, Klarheit und EQ übersteuern nicht mehr, der Limiter verzerrt keinen Bass',
+          'Mit starkem Bass oder EQ spielt ein Kanal dafür leiser, dreh ihn etwas auf',
+          'Ducking greift nach 100 ms statt nach fast 1 Sekunde, auch bei leisem Chat-Regler',
+          'Nach einem Gerätewechsel hängt der Ton nicht mehr hinterher',
+        ],
       },
       {
         art: 'mute',
-        tab: 'mic',
-        title: 'Mikrofon sagt Bescheid',
-        text: 'Kommt 10 Sekunden lang gar kein Ton vom Mikrofon, nennt die Mikrofon-Seite das Gerät und was du tun kannst. Ein Mikrofon, das immer wieder ausfällt, wird seltener neu versucht.',
+        title: 'Stimme und Mikrofon',
+        points: [
+          'Neue Stimm-Presets: Podcast und Laptop-Mikro',
+          'Der Auto-Pegel kriecht in Pausen nicht mehr hoch, Lacher fängt er in 10 ms ab',
+          'Kommt 10 Sekunden kein Ton, nennt die Mikrofon-Seite das Gerät und den Ausweg',
+          'Übersteuert das Mikrofon schon vor Mixpilot, sagt sie das auch',
+          'Stummschalten wirkt ab dem ersten Moment',
+          'Ohne Mikrofon hören die anderen Stille statt deinem Spielton',
+        ],
+      },
+      {
+        art: 'error',
+        title: 'Fehler mit Ausweg',
+        points: [
+          'Fehlermeldungen sagen, was du tun kannst, etwa welches Gerät du prüfen solltest',
+          '„Fehler melden“ öffnet den Bericht mit der Meldung schon ausgefüllt',
+          'Fällt der Audio-Kern aus, sagt Mixpilot das sofort und nach 30 s, was zu tun ist',
+          'Meldungen lassen sich schließen und gehen von selbst, wenn die Ursache weg ist',
+          'Im Bericht kannst du jetzt auch Wünsche loswerden, ein Wunsch allein reicht',
+        ],
       },
     ],
   },
@@ -1275,19 +1291,16 @@ const NEWS = [
     items: [
       {
         art: 'mixer',
-        tab: 'mixer',
         title: 'Mit Tastatur und Screenreader',
         text: 'Die Tabs wechseln mit den Pfeiltasten, Dialoge behalten den Fokus, jeder Regler sagt seinen Wert an und Fehler werden vorgelesen. Strg+Plus macht alles größer.',
       },
       {
         art: 'mute',
-        tab: 'mic',
         title: 'Push-to-Mute hält',
         text: 'Ist der Desktop beim Anmelden noch nicht bereit oder startet sein Dienst für Tastenkürzel neu, verbindet sich die Taste von selbst wieder. Andere Apps können sie nicht mehr auslösen.',
       },
       {
         art: 'monitor',
-        tab: 'mic',
         title: 'Ganzer Ton bei großem Puffer',
         text: 'Läuft PipeWire mit großem Puffer, kommt der Ton ohne Lücken an, auch beim Mithören. Ein hängender Audio-Kern wird auch bei geschlossenem Fenster ersetzt.',
       },
@@ -1299,13 +1312,11 @@ const NEWS = [
     items: [
       {
         art: 'mixer',
-        tab: 'mixer',
         title: 'Läuft einfach weiter',
         text: 'Startet PipeWire neu, ist der Ton nach Sekunden von selbst wieder da. Ein hängender Audiodienst friert Mixpilot nicht mehr ein, und doppelt gestartet läuft es trotzdem nur einmal.',
       },
       {
         art: 'monitor',
-        tab: 'mic',
         title: 'Mithören ohne Aussetzer',
         text: 'Sind Mikrofon und Headset getrennte Geräte, laufen ihre Takte leicht auseinander. Mixpilot gleicht das aus, das Mithören bleibt sauber.',
       },
@@ -1520,18 +1531,9 @@ function openNews(entry) {
     const art = el('div', 'news-art');
     if (NEWS_ART[it.art]) steps.push(NEWS_ART[it.art](art));
     const text = el('div', 'news-text');
-    text.append(el('h2', null, t(it.title)), el('p', 'hint', t(it.text)));
-    // an item without a tab has nothing to show in the window
-    if (it.tab) {
-      const go = el('button', 'btn small', t('Ansehen'));
-      go.addEventListener('click', () => {
-        closeNews();
-        const b = document.querySelector(`.tab[data-tab="${it.tab}"]`);
-        b?.click();
-        b?.focus();
-      });
-      text.append(go);
-    }
+    const body = it.points ? el('ul', 'hint') : el('p', 'hint', t(it.text));
+    for (const p of it.points || []) body.append(el('li', null, t(p)));
+    text.append(el('h2', null, t(it.title)), body);
     row.append(art, text);
     list.append(row);
   }
