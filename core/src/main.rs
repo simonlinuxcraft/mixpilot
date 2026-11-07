@@ -47,6 +47,7 @@ const FRAME: usize = DenoiseState::FRAME_SIZE;
 /// main loop tick; config polling, level snapshots and reconnects all run on it
 const TICK_MS: u64 = 50;
 const RETRY_TICKS: u32 = 40;
+const CONNECT_FLAGS: StreamFlags = StreamFlags::AUTOCONNECT.union(StreamFlags::MAP_BUFFERS).union(StreamFlags::RT_PROCESS);
 /// Bumped whenever the app needs something new from the core; must match STATE_PROTO in the app.
 const STATE_PROTO: u32 = 6;
 /// mix channels, see config::CHANNELS
@@ -429,7 +430,7 @@ impl MicDsp {
                 before += y * y;
                 if gate_on {
                     // with RNNoise running its voice detection is the better judge than loudness
-                    y = if noise > 0 { self.gate.run_voice(y, vad >= 0.5) } else { self.gate.run(y) };
+                    y = self.gate.run_voice(y, noise == 0 || vad >= 0.5);
                 }
                 *s = y * self.vad.next(vad_target);
                 power += *s * *s;
@@ -451,7 +452,7 @@ impl MicDsp {
                 if d > 0 {
                     y = self.deess.run(y);
                 }
-                let (mut y, _) = self.limiter.run(y, y);
+                let (mut y, _) = self.limiter.run(y, y, true);
                 if self.quiet > 0 {
                     y = 0.0;
                 }
@@ -726,7 +727,8 @@ fn die(e: impl std::fmt::Display) -> ! {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let Some(_lock) = single_instance(&runtime_dir().join("mixpilot.lock")) else {
+    let run_dir = runtime_dir();
+    let Some(_lock) = single_instance(&run_dir.join("mixpilot.lock")) else {
         log!("already running");
         std::process::exit(3);
     };
@@ -740,12 +742,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
     }
     // without XDG_RUNTIME_DIR (su, startx without logind) libpipewire would only look in /run/pipewire
-    if std::env::var_os("XDG_RUNTIME_DIR").is_none() && std::env::var_os("PIPEWIRE_RUNTIME_DIR").is_none() {
-        let dir = runtime_dir();
-        if dir.join("pipewire-0").exists() {
-            // SAFETY: no other thread exists yet, PipeWire starts its own below
-            unsafe { std::env::set_var("PIPEWIRE_RUNTIME_DIR", dir) };
-        }
+    if std::env::var_os("XDG_RUNTIME_DIR").is_none() && std::env::var_os("PIPEWIRE_RUNTIME_DIR").is_none() && run_dir.join("pipewire-0").exists() {
+        // SAFETY: no other thread exists yet, PipeWire starts its own below
+        unsafe { std::env::set_var("PIPEWIRE_RUNTIME_DIR", &run_dir) };
     }
     pw::init();
     let mainloop = pw::main_loop::MainLoopRc::new(None)?;
@@ -756,7 +755,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
 
     let path = config::path();
-    let state_dir = runtime_dir().join("mixpilot");
+    let state_dir = run_dir.join("mixpilot");
     let _ = std::fs::create_dir_all(&state_dir);
     let cfg = Rc::new(RefCell::new(config::load_or_create(&path)));
     let night = Rc::new(Cell::new(cfg.borrow().auto && cfg.borrow().night.active_at(local_time().0)));
@@ -962,7 +961,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     l += v * 0.8;
                     r += v * 0.8;
                 }
-                (l, r) = if limit { mix.limiter.run(l, r) } else { mix.limiter.run_off(l, r) };
+                (l, r) = mix.limiter.run(l, r, limit);
                 peaks[LV_MASTER] = peaks[LV_MASTER].max(l.abs());
                 peaks[LV_MASTER + 1] = peaks[LV_MASTER + 1].max(r.abs());
                 bytes[f * 8..f * 8 + 4].copy_from_slice(&l.to_le_bytes());
@@ -982,7 +981,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     output.connect(
         spa::utils::Direction::Output,
         None,
-        StreamFlags::AUTOCONNECT | StreamFlags::MAP_BUFFERS | StreamFlags::RT_PROCESS,
+        CONNECT_FLAGS,
         &mut [Pod::from_bytes(&stereo).unwrap()],
     ).unwrap_or_else(|e| die(e));
 
@@ -1347,8 +1346,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 out_ticks.set(0);
                 out_retry.set(false);
                 let _ = out.disconnect();
-                let flags = StreamFlags::AUTOCONNECT | StreamFlags::MAP_BUFFERS | StreamFlags::RT_PROCESS;
-                if let Err(e) = out.connect(spa::utils::Direction::Output, None, flags, &mut [Pod::from_bytes(&stereo2).unwrap()]) {
+                if let Err(e) = out.connect(spa::utils::Direction::Output, None, CONNECT_FLAGS, &mut [Pod::from_bytes(&stereo2).unwrap()]) {
                     log!("output reconnect failed: {e}");
                     out_retry.set(true);
                 }
@@ -1399,7 +1397,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if wanted {
             mic_idle.set(0);
             if !mic_on.get() && mic_wait.get() == 0 {
-                let flags = StreamFlags::AUTOCONNECT | StreamFlags::MAP_BUFFERS | StreamFlags::RT_PROCESS;
                 let input = rcfg.borrow().input.clone();
                 let target = devs.borrow().iter().find(|(_, d)| !d.sink && d.name == input && !input.starts_with("mixpilot")).map(|(id, _)| *id);
                 if target.is_none() {
@@ -1407,7 +1404,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 mic_pinned.set(target.is_some());
                 p.mic_fresh.store(true, Relaxed);
-                match mic.connect(spa::utils::Direction::Input, target, flags, &mut [Pod::from_bytes(&mono2).unwrap()]) {
+                match mic.connect(spa::utils::Direction::Input, target, CONNECT_FLAGS, &mut [Pod::from_bytes(&mono2).unwrap()]) {
                     Ok(()) => {
                         mic_on.set(true);
                         mic_seen.set(u32::MAX);

@@ -464,11 +464,10 @@ impl Agc {
 /// last ~2 s (speech always has pauses) and opens 15 dB above it, between -70 and -25 dBFS. A hold time
 /// keeps word endings, the gate then closes to -60 dB, so pauses are really silent.
 pub struct Gate {
-    env: f32,
+    env: Envelope,
     gain: f32,
     open: f32,
     close: f32,
-    env_rel: f32,
     hold: u32,
     held: u32,
     block_sum: f32,
@@ -483,11 +482,10 @@ const GATE_BLOCK: u32 = 2400; // 50 ms
 impl Gate {
     pub fn new() -> Self {
         Self {
-            env: 0.0,
+            env: Envelope::new(60.0),
             gain: 1.0,
             open: coef(2.0),
             close: coef(120.0),
-            env_rel: coef(60.0),
             hold: (RATE * 0.15) as u32,
             held: 0,
             block_sum: 0.0,
@@ -498,26 +496,18 @@ impl Gate {
         }
     }
 
-    /// Level-only gate (noise suppression off).
-    #[inline]
-    pub fn run(&mut self, x: f32) -> f32 {
-        self.track(x);
-        self.decide(self.env > self.threshold, x)
-    }
-
     /// With RNNoise running, both must agree: its voice detection says speech (so typing and clicks
     /// stay out) and the level is clearly above the noise floor (so steady noise that fools the
-    /// detection stays out too).
+    /// detection stays out too). Without it, `voice` is simply true.
     #[inline]
     pub fn run_voice(&mut self, x: f32, voice: bool) -> f32 {
         self.track(x);
-        self.decide(voice && self.env > self.threshold, x)
+        self.decide(voice && self.env.value > self.threshold, x)
     }
 
     #[inline]
     fn track(&mut self, x: f32) {
-        let a = x.abs();
-        self.env = if a > self.env { a } else { flush(self.env + (a - self.env) * self.env_rel) };
+        self.env.run(x);
         // noise floor: RMS of 50 ms blocks, minimum over the last 40 blocks
         self.block_sum += x * x;
         self.block_n += 1;
@@ -626,20 +616,10 @@ impl Limiter {
         }
     }
 
-    #[inline]
-    pub fn run(&mut self, l: f32, r: f32) -> (f32, f32) {
-        self.step(l, r, true)
-    }
-
     /// Switched off: the same delay, so switching keeps the timing and never plays stale samples,
     /// and only a clamp at full scale.
     #[inline]
-    pub fn run_off(&mut self, l: f32, r: f32) -> (f32, f32) {
-        self.step(l, r, false)
-    }
-
-    #[inline]
-    fn step(&mut self, l: f32, r: f32, on: bool) -> (f32, f32) {
+    pub fn run(&mut self, l: f32, r: f32, on: bool) -> (f32, f32) {
         let (l, r) = (sanitize(l), sanitize(r));
         let peak = l.abs().max(r.abs());
         let need = if on && peak > self.ceiling { self.ceiling / peak } else { 1.0 };
@@ -803,7 +783,7 @@ mod tests {
         for i in 0..(48_000 * 6) {
             let n = noise(0.009);
             let v = if i >= 48_000 * 4 { speechy(0.2, i) } else { 0.0 };
-            let y = g.run(n + v);
+            let y = g.run_voice(n + v, true);
             if (48_000 * 3..48_000 * 4).contains(&i) {
                 noise_peak = noise_peak.max(y.abs());
             }
@@ -820,7 +800,7 @@ mod tests {
         let mut g = Gate::new();
         let mut peak = 0f32;
         for i in 0..(48_000 * 4) {
-            let y = g.run(speechy(0.01, i)); // -40 dBFS speech, silent room
+            let y = g.run_voice(speechy(0.01, i), true); // -40 dBFS speech, silent room
             if i > 48_000 * 2 {
                 peak = peak.max(y.abs());
             }
@@ -865,20 +845,20 @@ mod tests {
     fn gate_holds_word_endings() {
         let mut g = Gate::new();
         for i in 0..48_000 {
-            g.run(speechy(0.2, i % 4800)); // settle with voice on
+            g.run_voice(speechy(0.2, i % 4800), true); // settle with voice on
         }
         // voice stops: 100 ms later the gate must still be (nearly) open
         let mut y = 0.0;
         for i in 0..4800 {
-            y = g.run(0.1 * (TAU * 440.0 * i as f32 / RATE).sin().signum());
+            y = g.run_voice(0.1 * (TAU * 440.0 * i as f32 / RATE).sin().signum(), true);
         }
         let _ = y;
         let mut g2 = Gate::new();
         for i in 0..48_000 {
-            g2.run(speechy(0.2, i % 4800));
+            g2.run_voice(speechy(0.2, i % 4800), true);
         }
         for _ in 0..(48_000 / 10) {
-            g2.run(0.0);
+            g2.run_voice(0.0, true);
         }
         assert!(g2.gain > 0.9, "gate closed during hold: {}", g2.gain);
     }
@@ -1017,14 +997,14 @@ mod tests {
             let x = 0.5 * (i as f32 * 0.1).sin();
             lev.gain(x);
             de.run(x);
-            gate.run(x);
+            gate.run_voice(x, true);
         }
         for _ in 0..48_000 * 10 {
             lev.gain(0.0);
             de.run(0.0);
-            gate.run(0.0);
+            gate.run_voice(0.0, true);
         }
-        assert!(lev.ms == 0.0 && de.env_hf == 0.0 && de.env_all == 0.0 && gate.env == 0.0);
+        assert!(lev.ms == 0.0 && de.env_hf == 0.0 && de.env_all == 0.0 && gate.env.value == 0.0);
     }
 
     #[test]
@@ -1048,11 +1028,11 @@ mod tests {
         let c = db_to_gain(-1.0);
         for i in 0..10_000 {
             let x = 4.0 * (i as f32 * 0.05).sin();
-            let (l, r) = lim.run(x, -x);
+            let (l, r) = lim.run(x, -x, true);
             assert!(l.abs() <= c + 1e-6 && r.abs() <= c + 1e-6);
         }
         for _ in 0..100 {
-            let (l, r) = lim.run(f32::NAN, f32::INFINITY);
+            let (l, r) = lim.run(f32::NAN, f32::INFINITY, true);
             assert!(l.is_finite() && r.is_finite() && l.abs() <= c + 1e-6);
         }
     }
@@ -1066,7 +1046,7 @@ mod tests {
         let (mut run, mut flat_tops) = (0, 0);
         for i in 0..48_000 {
             let x = 2.0 * c * (TAU * 1000.0 * i as f32 / RATE).sin();
-            let (l, _) = lim.run(x, x);
+            let (l, _) = lim.run(x, x, true);
             if i > 4800 && l.abs() >= c * 0.999 {
                 run += 1;
                 if run == 3 {
@@ -1108,7 +1088,7 @@ mod tests {
         let x: Vec<f32> = (0..48_000).map(|i| 2.0 * (TAU * 30.0 * i as f32 / RATE).sin()).collect();
         let (mut lo, mut hi) = (f32::MAX, 0f32);
         for (i, &v) in x.iter().enumerate() {
-            let (l, _) = lim.run(v, v);
+            let (l, _) = lim.run(v, v, true);
             if i > 24_000 && x[i - LOOKAHEAD].abs() > 0.2 {
                 let g = l / x[i - LOOKAHEAD];
                 (lo, hi) = (lo.min(g), hi.max(g));
@@ -1158,22 +1138,22 @@ mod tests {
     fn limiter_off_keeps_its_delay_and_glides() {
         let mut lim = Limiter::new(-1.0, 120.0);
         for _ in 0..4800 {
-            lim.run(2.0, 2.0);
+            lim.run(2.0, 2.0, true);
         }
-        let (on, _) = lim.run(2.0, 2.0);
+        let (on, _) = lim.run(2.0, 2.0, true);
         // switched off while limiting: no jump back to full level, then free up to full scale
-        let (off, _) = lim.run_off(0.5, 0.5);
+        let (off, _) = lim.run(0.5, 0.5, false);
         assert!((off / on - 1.0).abs() < 0.01, "{on} -> {off}");
-        let tail: Vec<f32> = (0..96_000).map(|_| lim.run_off(0.5, 0.5).0).collect();
+        let tail: Vec<f32> = (0..96_000).map(|_| lim.run(0.5, 0.5, false).0).collect();
         assert_eq!(tail[tail.len() - 1], 0.5);
-        assert_eq!(lim.run_off(4.0, 4.0).0, 0.5, "still delayed by the look-ahead");
+        assert_eq!(lim.run(4.0, 4.0, false).0, 0.5, "still delayed by the look-ahead");
     }
 
     #[test]
     fn limiter_leaves_quiet_signal_alone() {
         let mut lim = Limiter::new(-1.0, 100.0);
         for i in 0..1000 {
-            let out = lim.run(0.3, -0.3);
+            let out = lim.run(0.3, -0.3, true);
             if i >= LOOKAHEAD {
                 assert_eq!(out, (0.3, -0.3));
             }
@@ -1247,7 +1227,7 @@ mod tests {
         let (mut gate, mut agc) = (Gate::new(), Agc::voice());
         let mut y = Vec::with_capacity(x.len());
         for frame in x.as_chunks::<480>().0 {
-            let gated: Vec<f32> = frame.iter().map(|&v| gate.run(v)).collect();
+            let gated: Vec<f32> = frame.iter().map(|&v| gate.run_voice(v, true)).collect();
             let p = |v: &[f32]| v.iter().map(|s| s * s).sum::<f32>() / 480.0;
             agc.frame(p(&gated), p(frame));
             y.extend(gated.iter().map(|v| v * agc.gain()));

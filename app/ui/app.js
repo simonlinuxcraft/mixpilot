@@ -208,6 +208,12 @@ function openDialog(o) {
   document.querySelector('.app').inert = true;
   o.firstElementChild.focus();
 }
+// click on the backdrop or Escape closes the dialog
+function dismissOn(o, close) {
+  o.addEventListener('click', (e) => { if (e.target === o) close(); });
+  o.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+}
+
 function closeDialog(o) {
   o.hidden = true;
   document.querySelector('.app').inert = !!document.querySelector('.overlay:not([hidden])');
@@ -457,8 +463,8 @@ function strip(id, label, master) {
   mute.setAttribute('aria-label', t('{0} stumm', label));
   let chip = null;
   const apps = el('div', 'appchips');
+  const btns = el('div', 'btns');
   if (master) {
-    const btns = el('div', 'btns');
     mute.addEventListener('click', async () => {
       masterDev.mute = !masterDev.mute;
       masterTouched = Date.now();
@@ -468,7 +474,6 @@ function strip(id, label, master) {
     btns.append(mute);
     root.append(btns, el('p', 'hint', t('Systemlautstärke deines Ausgabegeräts')));
   } else {
-    const btns = el('div', 'btns');
     mute.addEventListener('click', change(() => (cfg[id].mute = !cfg[id].mute)));
     chip = el('button', 'eqchip');
     chip.setAttribute('aria-haspopup', 'menu');
@@ -938,13 +943,11 @@ async function refreshDevices() {
 }
 
 function bindDevices() {
-  for (const s of document.querySelectorAll('.output-select')) {
-    s.addEventListener('focus', refreshDevices);
-    s.addEventListener('change', () => { devCfg().output = s.value; if (cfg) save(); paintDevices(); });
-  }
-  for (const s of document.querySelectorAll('.input-select')) {
-    s.addEventListener('focus', refreshDevices);
-    s.addEventListener('change', () => { devCfg().input = s.value; if (cfg) save(); paintDevices(); });
+  for (const key of ['output', 'input']) {
+    for (const s of document.querySelectorAll(`.${key}-select`)) {
+      s.addEventListener('focus', refreshDevices);
+      s.addEventListener('change', () => { devCfg()[key] = s.value; if (cfg) save(); paintDevices(); });
+    }
   }
 }
 
@@ -1590,8 +1593,7 @@ function bindChrome() {
   const info = $('support-info');
   $('support').addEventListener('click', () => openDialog(info));
   $('support-cancel').addEventListener('click', () => closeDialog(info));
-  info.addEventListener('click', (e) => { if (e.target === info) closeDialog(info); });
-  info.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDialog(info); });
+  dismissOn(info, () => closeDialog(info));
   $('support-go').addEventListener('click', () => {
     closeDialog(info);
     invoke('open_support').catch(showError);
@@ -1622,8 +1624,7 @@ function bindChrome() {
     openDialog(about);
   });
   $('about-close').addEventListener('click', closeAbout);
-  about.addEventListener('click', (e) => { if (e.target === about) closeAbout(); });
-  about.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAbout(); });
+  dismissOn(about, closeAbout);
   $('licenses-box').addEventListener('toggle', async () => {
     // the dialog has no room for both: the license texts take the place of privacy and credits
     about.classList.toggle('licenses-open', $('licenses-box').open);
@@ -1634,8 +1635,7 @@ function bindChrome() {
   $('about-news').addEventListener('click', () => { closeAbout(); showNews(); });
   const news = $('news');
   $('news-close').addEventListener('click', closeNews);
-  news.addEventListener('click', (e) => { if (e.target === news) closeNews(); });
-  news.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeNews(); });
+  dismissOn(news, closeNews);
   $('start-core').addEventListener('click', async () => {
     await invoke('ensure_core').catch(showError);
     setTimeout(pollCore, 600);
@@ -1718,7 +1718,6 @@ async function openSetup() {
     save();
     closeDialog($('setup'));
     await init();
-    $('autostart').setAttribute('aria-checked', String(await invoke('get_autostart')));
   });
   // after the handlers, so a failing check never leaves the buttons dead
   await refreshDevices();

@@ -139,9 +139,7 @@ check "state written at 20 Hz while a window watches ($n in 3 s)" "$(between "$n
 echo "-- microphone"
 check "running" "$(alive)"
 check "microphone closed while nobody listens" "$([ -z "$(pw-link -l | grep 'mixpilot_mic_in:')" ] && echo ok || echo 'mic is linked')"
-pw-cat -p --target mp_test_micbus -P '{ node.name=feed_mic }' "$W/tone.wav" >/dev/null 2>&1 &
-FEED=$!
-sleep 0.5
+feed tone.wav
 v=$(rms mixpilot_mic)
 check "processed voice arrives at Mixpilot Mikrofon" "$(near "$v" 0.354)"
 check "raw microphone peak reported for the clip warning" "$(near "$(level "s['levels']['mic_raw']")" 0.5)"

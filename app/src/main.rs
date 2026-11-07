@@ -16,7 +16,7 @@ mod hotkey;
 fn env_dir(var: &str, fallback: &str) -> PathBuf {
     std::env::var_os(var)
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(fallback))
+        .unwrap_or_else(|| std::env::home_dir().unwrap_or_default().join(fallback))
 }
 
 fn config_path() -> PathBuf {
@@ -313,7 +313,7 @@ fn runtime_dir() -> PathBuf {
     if private_dir(&tmp, uid) {
         return tmp;
     }
-    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache").join(format!("mixpilot-run-{uid}"));
+    let home = std::env::home_dir().unwrap_or_default().join(".cache").join(format!("mixpilot-run-{uid}"));
     let _ = std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&home);
     home
 }
@@ -616,17 +616,18 @@ fn set_master(volume: u32) -> Result<(), String> {
     drop(balance);
     let mut args = vec!["set-sink-volume", sink.as_str()];
     args.extend(levels.iter().map(String::as_str));
-    pactl(&args)
-        .map(|_| ())
-        .map_err(|e| { eprintln!("mixpilot: pactl: {e}"); "Lautstärke des Ausgabegeräts konnte nicht geändert werden".to_string() })
+    pactl(&args).map(|_| ()).map_err(master_err)
+}
+
+fn master_err(e: String) -> String {
+    eprintln!("mixpilot: pactl: {e}");
+    "Lautstärke des Ausgabegeräts konnte nicht geändert werden".to_string()
 }
 
 #[tauri::command(async)]
 fn set_master_mute(mute: bool) -> Result<(), String> {
     master_changed();
-    pactl(&["set-sink-mute", &output_sink(), if mute { "1" } else { "0" }])
-        .map(|_| ())
-        .map_err(|e| { eprintln!("mixpilot: pactl: {e}"); "Lautstärke des Ausgabegeräts konnte nicht geändert werden".to_string() })
+    pactl(&["set-sink-mute", &output_sink(), if mute { "1" } else { "0" }]).map(|_| ()).map_err(master_err)
 }
 
 #[derive(Serialize)]
@@ -665,7 +666,11 @@ fn snap_missing() -> Vec<String> {
 /// Ko-fi opens in the user's browser, payment never touches Mixpilot.
 #[tauri::command]
 fn open_support() {
-    let _ = Command::new("xdg-open").arg("https://ko-fi.com/simonlinuxcraft").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    xdg_open("https://ko-fi.com/simonlinuxcraft");
+}
+
+fn xdg_open(url: &str) {
+    let _ = Command::new("xdg-open").arg(url).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
 }
 
 const BUG_EMAIL: &str = "simonlinuxcraft@pm.me";
@@ -873,7 +878,7 @@ fn mail_bug_report(report: BugReport) {
     // the log is left out here, it would not fit
     let body = url_encode_capped(&report_text(&BugReport { include_log: false, ..report }), 8000);
     let url = format!("mailto:{BUG_EMAIL}?subject={}&body={body}", url_encode(&format!("Mixpilot Bug Report v{}", env!("CARGO_PKG_VERSION"))));
-    let _ = Command::new("xdg-open").arg(url).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    xdg_open(&url);
 }
 
 #[tauri::command]
@@ -1091,7 +1096,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         // GTK already flipped the check mark; if the settings cannot be written, flip it back
         "auto" => {
             let on = auto2.is_checked().unwrap_or(true);
-            if let Err(e) = update_config(|c| c["auto"] = Value::Bool(on)) {
+            if let Err(e) = set_auto(on) {
                 eprintln!("mixpilot: tray: {e}");
                 let _ = auto2.set_checked(!on);
             }

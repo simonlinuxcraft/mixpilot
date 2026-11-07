@@ -135,9 +135,6 @@ main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 20px; displa
 .meter { display: flex; gap: 3px; padding: 4px; border-radius: 4px; background: var(--well); }
 .meter .col { display: flex; flex-direction: column-reverse; gap: 2px; }
 .meter i { display: block; width: 7px; flex: 1 1 0; border-radius: 1px; background: var(--seg-off); }
-.meter i.low { background: var(--seg-low); }
-.meter i.mid { background: var(--seg-mid); }
-.meter i.hi { background: var(--seg-hi); }
 .meter i:not(.low, .mid, .hi), .hmeter i:not(.low, .mid, .hi), .eqgrid .ledcol i:not(.low, .mid) { box-shadow: inset 0 0 0 1px var(--edge); }
 .num {
   width: 84px; min-height: 30px; padding: 0 6px; border-radius: 6px; border: 1px solid transparent; background: transparent;
@@ -215,9 +212,6 @@ main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 20px; displa
 .meter-label { width: 128px; flex: none; font-size: 12px; color: var(--muted); }
 .hmeter { flex: 1 1 auto; display: flex; gap: 3px; padding: 6px; border-radius: 6px; background: var(--well); }
 .hmeter i { flex: 1 1 0; height: 18px; border-radius: 2px; background: var(--seg-off); }
-.hmeter i.low { background: var(--seg-low); }
-.hmeter i.mid { background: var(--seg-mid); }
-.hmeter i.hi { background: var(--seg-hi); }
 
 .events { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 13px; max-height: 92px; overflow: hidden; }
 .events li { display: flex; gap: 12px; }
@@ -239,7 +233,7 @@ main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 20px; displa
 .dialog:focus { outline: none; }
 .check { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; margin-top: 6px; cursor: pointer; }
 .check input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--acc2); }
-.checks { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .checks li { display: flex; gap: 10px; padding: 10px 12px; border-radius: 8px; background: var(--panel2); }
 .checks .mark { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 13px; }
 .checks .ok .mark { background: #2f6f4f; color: #e6fff1; }
@@ -283,19 +277,16 @@ main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 20px; displa
 .check-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 1 auto; }
 .check-list { margin: 0; padding-left: 18px; font-size: 13px; color: var(--text); display: flex; flex-direction: column; gap: 3px; }
 .cmd-row { display: flex; align-items: center; gap: 8px; }
-.cmd-row code { flex: 1 1 auto; margin: 0 !important; overflow-x: auto; white-space: nowrap; }
+.cmd-row code { flex: 1 1 auto; margin: 0 !important; white-space: pre-wrap; word-break: break-all; overflow: visible; }
 .btn.primary:disabled { background: var(--line2); border-color: var(--line2); color: var(--muted); }
 .dialog.wide { max-width: 920px; gap: 14px; }
 .dialog-cols { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; align-items: start; }
 .dialog-side { display: flex; flex-direction: column; gap: 10px; }
 .dialog-side .field.wide { margin-top: 0; }
-.checks { margin: 0; }
 .checks .check-list li { display: list-item; padding: 0; background: none; border-radius: 0; }
-.cmd-row code { white-space: pre-wrap; word-break: break-all; overflow: visible; }
 
 /* about dialog and saved assignments */
 .credits { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
-.dialog .actions .spacer { flex-grow: 1; }
 .app-row .forget { flex: none; width: 28px; height: 28px; padding: 0; border-radius: 6px; border: 1px solid var(--line2); background: none; color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; }
 .app-row .forget:hover { color: var(--text); border-color: var(--muted); }
 .app-row.saved .title { opacity: 0.7; }
@@ -314,8 +305,9 @@ main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 20px; displa
 .leds { display: flex; gap: 4px; }
 .ledcol { display: grid; grid-template-rows: repeat(var(--rows), 8px); gap: 4px; }
 .ledcol i { width: 14px; border-radius: 2px; background: var(--seg-off); transition: background-color 60ms; }
-.ledcol i.low { background: var(--seg-low); }
-.ledcol i.mid { background: var(--seg-mid); }
+i.low { background: var(--seg-low); }
+i.mid { background: var(--seg-mid); }
+i.hi { background: var(--seg-hi); }
 .news-head .leds { opacity: 0.55; }
 .news-body { padding: 14px 24px 16px; display: flex; flex-direction: column; gap: 4px; }
 #news-items { display: flex; flex-direction: column; gap: 10px; }
