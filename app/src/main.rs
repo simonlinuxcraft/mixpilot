@@ -112,6 +112,8 @@ fn core_pid() -> Option<i32> {
 // for the log and the lock. Quitting holds it too, so no start slips in after the core was stopped.
 static STARTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
 static QUITTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// The tray icon exists; whether a host shows it is a separate question (tray_available).
+static TRAY_BUILT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Starts the audio core detached, so it keeps running after the window is closed.
 fn start_core() -> Result<(), String> {
@@ -1194,10 +1196,10 @@ fn main() {
             quit_app
         ])
         .on_window_event(|w, e| {
-            // without a tray there is no way back to a hidden window: minimize instead
+            // without a tray icon or a host showing it there is no way back to a hidden window: minimize instead
             if let tauri::WindowEvent::CloseRequested { api, .. } = e
                 && w.label() == "main"
-                && !tray_available()
+                && !(TRAY_BUILT.load(std::sync::atomic::Ordering::Relaxed) && tray_available())
             {
                 api.prevent_close();
                 let _ = w.minimize();
@@ -1205,9 +1207,10 @@ fn main() {
         })
         .setup(move |app| {
             let handle = app.handle().clone();
-            if let Err(e) = build_tray(&handle) {
+            match build_tray(&handle) {
+                Ok(()) => TRAY_BUILT.store(true, std::sync::atomic::Ordering::Relaxed),
                 // no tray (desktop without AppIndicator support): the window stays the way back in
-                eprintln!("mixpilot: tray: {e}");
+                Err(e) => eprintln!("mixpilot: tray: {e}"),
             }
             listen(handle.clone());
             let restore = get_config().ok().and_then(|c| c["mic_hotkey"].as_bool()).unwrap_or(false);
