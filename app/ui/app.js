@@ -84,13 +84,13 @@ const pending = { output: '', input: '' };
 const devCfg = () => cfg || pending;
 // Master is the output device's own volume (the one GNOME and the volume keys change), not a Mixpilot stage
 const masterDev = { volume: 0, mute: false, known: false };
-// One volume command at a time, always with the newest value: parallel pactl calls can finish out of
-// order and make the fader jump back and forth.
 const MIC_MUTED = 'Das Mikrofon ist stumm. Klick oben auf "stumm", um es wieder einzuschalten.';
 const MASTER_FAILED = 'Lautstärke des Ausgabegeräts konnte nicht geändert werden';
 let masterPending = null;
 let masterBusy = false;
 let masterTouched = 0;
+// One volume command at a time, always with the newest value: parallel pactl calls can finish out of
+// order and make the fader jump back and forth.
 async function setMaster(v) {
   masterDev.volume = v;
   masterTouched = Date.now();
@@ -147,7 +147,7 @@ const HINT_RULES = [
 function errorHint(raw) {
   if (Object.hasOwn(HINTS, raw)) return HINTS[raw];
   if (Object.hasOwn(EN, raw)) return null;
-  // ponytail: unknown texts get the bug report pointer, add a rule once a message turns up often
+  // unknown texts get the bug report pointer, add a rule once a message turns up often
   return HINT_RULES.find(([re]) => re.test(raw))?.[1] ?? 'Wenn das wieder passiert, schick bitte über "Fehler melden" einen Bericht.';
 }
 

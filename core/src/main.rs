@@ -915,7 +915,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut chat = 0f32;
                 for c in 0..N {
                     let g = mix.gains[c].next(targets[c]);
-                    // drift correction (resampling) only if dropouts show up
                     let (a, b) = if locked[c].len() >= 2 {
                         let k = mix.live[c];
                         mix.live[c] += (1.0 - k) * 0.01;
@@ -1351,7 +1350,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // microphone on demand
-        // the open stream keeps node.target from a pinned connect, only a new connect follows the default
         // leftovers would read as a late microphone and play stale voice on the next start
         let close_mic = || {
             let _ = mic.disconnect();

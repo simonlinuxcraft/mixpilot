@@ -149,10 +149,6 @@ fn start_core() -> Result<(), String> {
     Ok(())
 }
 
-/// The core ends itself when PipeWire goes away (a restart, an update, a crash) or a channel fails,
-/// and nothing else would bring it back; a hung one is replaced, also with the window closed. Waits
-/// longer each time it dies young, so a system without PipeWire or a snap without its permissions is
-/// not hammered.
 /// Copy and truncate instead of rename: a running core keeps writing to the same file, appending.
 fn rotate_log(log_dir: &std::path::Path) {
     let log_path = log_dir.join("core.log");
@@ -163,6 +159,10 @@ fn rotate_log(log_dir: &std::path::Path) {
     }
 }
 
+/// The core ends itself when PipeWire goes away (a restart, an update, a crash) or a channel fails,
+/// and nothing else would bring it back; a hung one is replaced, also with the window closed. Waits
+/// longer each time it dies young, so a system without PipeWire or a snap without its permissions is
+/// not hammered.
 fn watch_core() {
     std::thread::spawn(|| {
         let mut delay = Duration::from_secs(2);

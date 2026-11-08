@@ -261,10 +261,8 @@ pub fn parse(text: &str) -> Result<Config, String> {
     serde_json::from_value(v).map_err(|e| e.to_string())
 }
 
-/// Configs from before the Music channel carry their own copy of the built-in rules, which sends
-/// Spotify and Rhythmbox to Media. Those two entries go, the built-in music rules come in before the
-/// first built-in Media rule; every other rule stays. Works on the raw JSON so keys only the app
-/// knows (own presets, seen_version) survive a write back.
+/// Configs from before the Music channel still send Spotify and Rhythmbox to Media. Works on the raw
+/// JSON so keys only the app knows (own presets, seen_version) survive a write back.
 fn migrate(v: &mut serde_json::Value) -> bool {
     if v.get("music").is_some() {
         return false;

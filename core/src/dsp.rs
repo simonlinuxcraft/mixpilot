@@ -90,7 +90,7 @@ impl Biquad {
     }
 }
 
-/// Microphone voice presets: 0 natural, 1 warm, 2 radio, 3 broadcast, 4 podcast, 5 laptop microphone.
+/// Microphone voice presets, indexed by the config's voice number.
 pub const VOICE_PRESETS: [&str; 6] = ["natural", "warm", "radio", "broadcast", "podcast", "laptop"];
 
 /// Up to five filters, enough for presets that are clearly audible, not just a nudge.
@@ -774,7 +774,7 @@ mod tests {
             rng = rng.wrapping_mul(1664525).wrapping_add(1013904223);
             amp * ((rng >> 8) as f32 / (1u32 << 24) as f32 * 2.0 - 1.0)
         };
-        // background hum at about -46 dBFS, above the old fixed -52 dB threshold
+        // background hum at about -46 dBFS
         let mut g = Gate::new();
         let mut noise_peak = 0f32;
         let mut voice_peak = 0f32;
@@ -980,7 +980,6 @@ mod tests {
 
     #[test]
     fn detectors_settle_to_zero_in_silence() {
-        // stuck denormals cost up to 100x per operation on some CPUs
         let (mut lev, mut de, mut gate) = (Leveler::podcast(), DeEsser::new(1), Gate::new());
         for i in 0..48_000 {
             let x = 0.5 * (i as f32 * 0.1).sin();
@@ -1235,7 +1234,7 @@ mod tests {
         let y = agc_frames(&x);
         let after = level_at(&y, 12, 14);
         assert!((after - AGC_TARGET).abs() < 2.0, "new level not learned: {after:.1} dBFS");
-        // a 0.6 s laugh 16 dB louder: the voice after it stays within 3 dB (the old AGC dropped it 5 dB and more)
+        // a 0.6 s laugh 16 dB louder: the voice after it stays within 3 dB
         let x: Vec<f32> = (0..48_000 * 12).map(|i| speechy(if (48_000 * 6..48_000 * 6 + 28_800).contains(&i) { 0.19 } else { 0.03 }, i)).collect();
         let y = agc_frames(&x);
         let (before, after) = (level_at(&y, 4, 6), level_at(&y, 7, 9));
