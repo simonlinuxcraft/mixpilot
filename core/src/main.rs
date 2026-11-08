@@ -620,12 +620,8 @@ fn forget_target(s: &pw::stream::Stream) {
 }
 
 fn local_time() -> (u32, u32) {
-    unsafe {
-        let t = libc::time(std::ptr::null_mut());
-        let mut tm: libc::tm = std::mem::zeroed();
-        libc::localtime_r(&t, &mut tm);
-        (tm.tm_hour as u32, tm.tm_min as u32)
-    }
+    let tm = config::local_tm();
+    (tm.tm_hour as u32, tm.tm_min as u32)
 }
 
 /// Device names other apps show (Discord's microphone list) follow the system language.

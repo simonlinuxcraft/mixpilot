@@ -308,13 +308,23 @@ fn save(path: &Path, v: &impl Serialize) -> std::io::Result<()> {
 }
 
 /// config.json.broken-20261016-153012, local time, next to the file.
-fn backup_path(path: &Path) -> PathBuf {
-    let tm = unsafe {
+/// Local wall-clock time. tzset first: the daemon runs for days, and localtime_r alone never notices
+/// a changed time zone.
+pub fn local_tm() -> libc::tm {
+    unsafe extern "C" {
+        fn tzset();
+    }
+    unsafe {
+        tzset();
         let t = libc::time(std::ptr::null_mut());
         let mut tm: libc::tm = std::mem::zeroed();
         libc::localtime_r(&t, &mut tm);
         tm
-    };
+    }
+}
+
+fn backup_path(path: &Path) -> PathBuf {
+    let tm = local_tm();
     let name = path.file_name().unwrap_or_default().to_string_lossy();
     let (y, mo, d, h, mi, s) = (tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
     path.with_file_name(format!("{name}.broken-{y:04}{mo:02}{d:02}-{h:02}{mi:02}{s:02}"))
@@ -358,6 +368,18 @@ pub fn load_or_create(path: &Path) -> Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_time_follows_a_changed_zone() {
+        // POSIX zone strings need no tzdata; only tzset makes localtime_r see the change
+        // SAFETY: the only test that touches TZ
+        unsafe { std::env::set_var("TZ", "UTC0") };
+        let utc = local_tm().tm_hour;
+        unsafe { std::env::set_var("TZ", "JST-9") };
+        let jst = local_tm().tm_hour;
+        unsafe { std::env::remove_var("TZ") };
+        assert_eq!((jst - utc).rem_euclid(24), 9);
+    }
 
     #[test]
     fn rules_first_match_wins() {
