@@ -846,7 +846,8 @@ fn post_bug_report(report: &BugReport) -> Result<(), String> {
         .spawn()
         .map_err(|e| format!("curl: {e}"))?;
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(payload.to_string().as_bytes()).map_err(|e| e.to_string())?;
+        // curl may quit before it reads (DNS failure): its own message below says more than "broken pipe"
+        let _ = stdin.write_all(payload.to_string().as_bytes());
     }
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     let text = String::from_utf8_lossy(&out.stdout);
