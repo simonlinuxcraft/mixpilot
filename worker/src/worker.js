@@ -87,13 +87,8 @@ async function handle(request, env) {
 
 // Control characters out; the message keeps its line breaks and tabs, so log and system info stay readable.
 function sanitize(v, max, multiline = false) {
-  const s = String(v == null ? '' : v);
-  let out = '';
-  for (let i = 0; i < s.length && out.length < max; i++) {
-    const c = s.charCodeAt(i);
-    if ((c >= 32 && c !== 127) || (multiline && (c === 10 || c === 9))) out += s[i];
-  }
-  return out.trim();
+  const control = multiline ? /[\x00-\x08\x0b-\x1f\x7f]/g : /[\x00-\x1f\x7f]/g;
+  return String(v ?? '').replace(control, '').slice(0, max).trim();
 }
 
 function jsonResponse(body, status) {

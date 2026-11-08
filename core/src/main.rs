@@ -13,12 +13,11 @@ mod dsp;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Cursor, Write};
-use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering::Relaxed};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use nnnoiseless::DenoiseState;
 use pipewire as pw;
@@ -352,7 +351,7 @@ impl MicDsp {
     }
 
     /// Returns (processed peak, input peak after gain).
-    fn process(&mut self, input: &[f32], p: &Params, out: &mut VecDeque<f32>, mon: Option<&mut VecDeque<f32>>) -> (f32, f32) {
+    fn process(&mut self, input: &[f32], p: &Params, out: &mut VecDeque<f32>, mut mon: Option<&mut VecDeque<f32>>) -> (f32, f32) {
         let v = p.mic_voice.load(Relaxed);
         if v != self.voice_idx {
             self.voice_idx = v;
@@ -392,7 +391,6 @@ impl MicDsp {
             self.agc_seen = seen;
             self.agc.restart();
         }
-        let mut mon = mon;
         let (mut peak, mut in_peak) = (0f32, 0f32);
         for &x in input {
             let x = sanitize(x) * self.gain.next(target);
@@ -681,7 +679,7 @@ fn single_instance(path: &Path) -> Option<std::fs::File> {
     // the app probes the lock with a short shared lock many times a second; only a lock still held
     // after 200 ms means another core
     let mut tries = 0;
-    while unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+    while file.try_lock().is_err() {
         tries += 1;
         if tries == 20 {
             return None;
@@ -695,7 +693,7 @@ fn single_instance(path: &Path) -> Option<std::fs::File> {
 fn fresh(path: &Path, secs: u64) -> bool {
     std::fs::metadata(path)
         .and_then(|m| m.modified())
-        .is_ok_and(|t| SystemTime::now().duration_since(t).is_ok_and(|d| d.as_secs() < secs))
+        .is_ok_and(|t| t.elapsed().is_ok_and(|d| d.as_secs() < secs))
 }
 
 fn levels_json(l: &[f32; 2 * N + 5], mic_on: bool) -> serde_json::Value {
@@ -1100,7 +1098,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Auto-routing binds each new stream once: the registry global lacks application.process.binary.
     let registry = core.get_registry_rc().unwrap_or_else(|e| die(e));
-    let reg_weak = registry.downgrade();
+    let reg = registry.clone();
     let router: Rc<RefCell<Router>> = Rc::new(RefCell::new(Router::default()));
     let apps: Rc<RefCell<HashMap<u32, App>>> = Rc::new(RefCell::new(HashMap::new()));
     // listener first so it is dropped before its proxy
@@ -1117,7 +1115,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_listener_local()
         .global(move |obj| {
             let Some(props) = obj.props else { return };
-            let Some(reg) = reg_weak.upgrade() else { return };
             match obj.type_ {
                 ObjectType::Metadata if props.get("metadata.name") == Some("default") => match reg.bind::<Metadata, _>(obj) {
                     Ok(m) => {
@@ -1168,7 +1165,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if name == "easyeffects_sink" {
                         event(&ev, "easyeffects", &[]);
                     }
-                    if props.get("media.class") != Some("Stream/Output/Audio") || name.starts_with("mixpilot") {
+                    if class != Some("Stream/Output/Audio") || name.starts_with("mixpilot") {
                         return;
                     }
                     let node: Node = match reg.bind(obj) {
@@ -1232,7 +1229,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state_file = state_dir.join("state.json");
     let (p, rcfg, rt, ap, ev, lv) = (params.clone(), cfg.clone(), router.clone(), apps.clone(), events.clone(), levels.clone());
     let (out, src_on, mic, merr, devs, defs) = (output.clone(), src_links.clone(), mic_in.clone(), mic_err.clone(), devices.clone(), defaults.clone());
-    let (nightc, stereo2, mono2, state_out) = (night.clone(), stereo.clone(), mono.clone(), state_file.clone());
+    let (nightc, state_out) = (night.clone(), state_file.clone());
     let timer = mainloop.loop_().add_timer(move |_| {
         let tick = ticks.get() + 1;
         ticks.set(tick);
@@ -1346,7 +1343,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 out_ticks.set(0);
                 out_retry.set(false);
                 let _ = out.disconnect();
-                if let Err(e) = out.connect(spa::utils::Direction::Output, None, CONNECT_FLAGS, &mut [Pod::from_bytes(&stereo2).unwrap()]) {
+                if let Err(e) = out.connect(spa::utils::Direction::Output, None, CONNECT_FLAGS, &mut [Pod::from_bytes(&stereo).unwrap()]) {
                     log!("output reconnect failed: {e}");
                     out_retry.set(true);
                 }
@@ -1404,7 +1401,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 mic_pinned.set(target.is_some());
                 p.mic_fresh.store(true, Relaxed);
-                match mic.connect(spa::utils::Direction::Input, target, CONNECT_FLAGS, &mut [Pod::from_bytes(&mono2).unwrap()]) {
+                match mic.connect(spa::utils::Direction::Input, target, CONNECT_FLAGS, &mut [Pod::from_bytes(&mono).unwrap()]) {
                     Ok(()) => {
                         mic_on.set(true);
                         mic_seen.set(u32::MAX);
@@ -1456,7 +1453,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "proto": STATE_PROTO,
             "levels": levels_json(&l, mic_on.get()),
             "mic_active": mic_on.get(),
-            "night_active": nightc.get(),
             "apps": list,
             "devices": {
                 "sinks": hw(true),

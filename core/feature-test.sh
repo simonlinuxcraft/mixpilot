@@ -108,7 +108,6 @@ save('fan.wav', lambda i: int(random.gauss(0, 180)), 20)
 random.seed(1)
 save('noise.wav', lambda i: int(random.gauss(0, 3000)), 20)"
 
-DEF_SINK=$(pactl get-default-sink); DEF_SRC=$(pactl get-default-source)
 module module-null-sink sink_name=mp_test_out
 module module-null-sink sink_name=mp_test_micbus
 module module-remap-source source_name=mp_test_mic master=mp_test_micbus.monitor

@@ -17,7 +17,6 @@ cleanup() {
   [ -n "$D" ] && kill "$D" 2>/dev/null && wait "$D" 2>/dev/null
   [ -n "$MOD" ] && pactl unload-module "$MOD" 2>/dev/null
   [ -n "$MOD2" ] && pactl unload-module "$MOD2" 2>/dev/null
-  T= D= MOD= MOD2=
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
@@ -56,7 +55,6 @@ import wave,math,struct
 w=wave.open('$W/tone.wav','w'); w.setnchannels(2); w.setsampwidth(2); w.setframerate(48000)
 w.writeframes(b''.join(struct.pack('<hh',v,v) for v in (int(16384*math.sin(2*math.pi*440*i/48000)) for i in range(48000*60))))"
 
-DEF_SINK=$(pactl get-default-sink)
 MOD=$(pactl load-module module-null-sink sink_name=mixpilot_test_hw) || { echo "cannot create test sink"; exit 1; }
 setcfg 100 false 0
 

@@ -53,7 +53,6 @@ const AUTOVOL = [
   ['night', t('Nacht'), t('Leise Stellen lauter, Explosionen leiser. Für spät abends.')],
 ];
 const NOISE = [['off', t('Aus')], ['normal', 'Normal'], ['strong', t('Stark')]];
-const DEESS = NOISE;
 const VOICE = [['natural', t('Natürlich')], ['warm', 'Warm'], ['radio', 'Radio'], ['broadcast', 'Broadcast'], ['podcast', t('Podcast')], ['laptop', t('Laptop-Mikro')]];
 const VOICE_TEXT = {
   natural: t('Deine Stimme wie sie ist, nur Rumpeln unter 80 Hz wird entfernt.'),
@@ -440,7 +439,7 @@ function strip(id, label, master) {
   const setL = makeSegments(cl, 20);
   const setR = makeSegments(cr, 20);
   const fwrap = el('div', 'fwrap');
-  const fader = el('input', master ? 'fader master-fader' : 'fader');
+  const fader = el('input', 'fader');
   Object.assign(fader, { type: 'range', min: 0, max: 100, step: 1 });
   fader.setAttribute('aria-label', t('{0} Lautstärke', label));
   fwrap.append(fader);
@@ -519,12 +518,12 @@ function strip(id, label, master) {
       label: t('{0} in dB', label),
       get: () => cfg[id].volume,
       set: (v) => (cfg[id].volume = Math.round(v * 10) / 10),
-      min: 0, max: 100, step: 1,
+      min: 0, max: 100,
       toValue: (db) => (db <= -60 ? 0 : 100 * Math.pow(10, Math.min(0, db) / 60)),
       show: () => (cfg[id].mute ? t('stumm') : fdb(cfg[id].volume)),
     });
   }
-  strips[id] = { root, setL, setR, dot, apps, l: 0, r: 0, appsKey: '' };
+  strips[id] = { setL, setR, dot, apps, l: 0, r: 0, appsKey: '' };
   return root;
 }
 
@@ -701,7 +700,7 @@ function openEqMenu(id, chip) {
   else box.style.top = `${r.bottom + 4}px`;
   chip.setAttribute('aria-expanded', 'true');
   eqMenu = { box, chip };
-  (box.querySelector('[aria-checked="true"]') || box.firstElementChild).focus();
+  box.querySelector('[aria-checked="true"]').focus();
 }
 
 function buildSound() {
@@ -796,7 +795,7 @@ function buildMic() {
   setMicInMeter = levelMeter($('mic-in-meter'));
   painters.push(() => ($('voice-text').textContent = VOICE_TEXT[cfg.mic.voice] || ''));
   buttonGroup('noise', NOISE, () => cfg.mic.noise, (v) => (cfg.mic.noise = v));
-  buttonGroup('deess', DEESS, () => cfg.mic.deess, (v) => (cfg.mic.deess = v));
+  buttonGroup('deess', NOISE, () => cfg.mic.deess, (v) => (cfg.mic.deess = v));
   buttonGroup('voice', VOICE, () => cfg.mic.voice, (v) => (cfg.mic.voice = v));
   bindRange('mic-gain', () => cfg.mic.gain, (v) => (cfg.mic.gain = v), () => `${cfg.mic.gain} %`);
   numField($('gain-text'), { label: t('Mikrofon-Verstärkung in Prozent'), get: () => cfg.mic.gain, set: (v) => (cfg.mic.gain = Math.round(v)), min: 0, max: 200, show: () => `${cfg.mic.gain} %` });
@@ -1002,7 +1001,7 @@ let appsKey = '';
 function paintApps(force) {
   const box = $('apps');
   if (!force && box.contains(document.activeElement)) return;
-  const focusKey = force && box.contains(document.activeElement) ? document.activeElement.dataset.key : null;
+  const focusKey = box.contains(document.activeElement) ? document.activeElement.dataset.key : null;
   const saved = cfg.rules.filter((r) => r.user);
   const key = JSON.stringify([apps, saved]);
   if (key === appsKey) return;
@@ -1343,8 +1342,9 @@ function ledColumns(parent, cols, rows) {
   });
 }
 
-function headLeds(parent, n = 4, rows = 7) {
-  const cols = ledColumns(parent, n, rows);
+function headLeds(parent) {
+  const rows = 7;
+  const cols = ledColumns(parent, 4, rows);
   const level = cols.map(() => Math.random() * rows);
   return () => cols.forEach((segs, c) => {
     level[c] = Math.max(1, Math.min(rows, level[c] + (Math.random() - 0.5) * 3));
@@ -1532,7 +1532,7 @@ function openNews(entry) {
   for (const it of entry.items) {
     const row = el('div', 'news-item');
     const art = el('div', 'news-art');
-    if (NEWS_ART[it.art]) steps.push(NEWS_ART[it.art](art));
+    steps.push(NEWS_ART[it.art](art));
     const text = el('div', 'news-text');
     const body = it.points ? el('ul', 'hint') : el('p', 'hint', t(it.text));
     for (const p of it.points || []) body.append(el('li', null, t(p)));

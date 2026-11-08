@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Writes ui/third-party-licenses.txt: every crate compiled into the app and the core, with its license texts.
 Run after dependency changes: python3 licenses.py"""
-import hashlib, json, pathlib, subprocess
+import json, pathlib, subprocess
 
 HERE = pathlib.Path(__file__).resolve().parent
 NAMES = ('license', 'licence', 'copying', 'notice', 'unlicense')

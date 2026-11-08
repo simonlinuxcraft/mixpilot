@@ -22,7 +22,6 @@ cleanup() {
   stop_loop
   [ -n "$D" ] && kill "$D" 2>/dev/null && wait "$D" 2>/dev/null
   [ -n "$MOD" ] && pactl unload-module "$MOD" 2>/dev/null
-  T= D= MOD=
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM

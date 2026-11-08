@@ -26,8 +26,7 @@ fn config_path() -> PathBuf {
 /// The core holds an exclusive flock on this file while it runs.
 fn core_running() -> bool {
     let Ok(f) = std::fs::OpenOptions::new().read(true).open(runtime_dir().join("mixpilot.lock")) else { return false };
-    let free = unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } == 0;
-    !free
+    unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) != 0 }
 }
 
 /// Development tree: app/target/release/mixpilot -> core/target/release/mixpilot-core. Only from
@@ -950,15 +949,11 @@ fn ipc_socket() -> PathBuf {
 
 /// A second start (menu entry while the tray app runs) only asks the running one to show its window.
 fn hand_over(background: bool) -> bool {
-    match UnixStream::connect(ipc_socket()) {
-        Ok(mut s) => {
-            if !background {
-                let _ = s.write_all(b"show");
-            }
-            true
-        }
-        Err(_) => false,
+    let Ok(mut s) = UnixStream::connect(ipc_socket()) else { return false };
+    if !background {
+        let _ = s.write_all(b"show");
     }
+    true
 }
 
 /// Held for the whole run by the one tray app of the session. None: another start holds it.
@@ -1010,7 +1005,7 @@ fn tr(de: &'static str, en: &'static str) -> &'static str {
 }
 
 fn lang_script() -> &'static str {
-    if german() { "window.MIXPILOT_LANG = 'de';" } else { "window.MIXPILOT_LANG = 'en';" }
+    tr("window.MIXPILOT_LANG = 'de';", "window.MIXPILOT_LANG = 'en';")
 }
 
 /// GNOME without the AppIndicator extension (Fedora, Arch, Debian) has no tray host.
@@ -1306,7 +1301,6 @@ mod tests {
 
     #[test]
     fn log_rotates_under_a_running_writer() {
-        use std::io::Write;
         let dir = std::env::temp_dir().join(format!("mixpilot-log-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut core = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("core.log")).unwrap();

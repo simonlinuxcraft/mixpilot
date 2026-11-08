@@ -158,11 +158,7 @@ impl Eq10 {
         for i in 0..10 {
             let g = gains[i].clamp(-12.0, 12.0);
             if g != self.gains[i] {
-                if self.used[i] {
-                    self.bands[i].retune(Biquad::peaking(EQ_FREQS[i], g, 1.4));
-                } else {
-                    self.bands[i] = Biquad::peaking(EQ_FREQS[i], g, 1.4);
-                }
+                self.bands[i].retune(Biquad::peaking(EQ_FREQS[i], g, 1.4));
                 self.used[i] = true;
                 self.gains[i] = g;
             }
@@ -184,7 +180,7 @@ impl Eq10 {
 /// EQ and bass add tone, not level: a +12 dB bass on a full-scale song otherwise lands in the limiter.
 pub fn headroom(chain: &[Biquad]) -> f32 {
     let peak = (0..120).map(|i| chain.iter().map(|b| b.mag_db(20.0 * 2f32.powf(i as f32 / 12.0))).sum::<f32>()).fold(0.0, f32::max);
-    10f32.powf(-peak / 20.0)
+    db_to_gain(-peak)
 }
 
 /// One-pole smoother for gains, avoids zipper noise when a fader moves.
@@ -208,12 +204,17 @@ impl Smooth {
     }
 }
 
+#[inline]
+fn db_to_gain(db: f32) -> f32 {
+    10f32.powf(db / 20.0)
+}
+
 fn coef(ms: f32) -> f32 {
     1.0 - (-1.0 / (ms * 0.001 * RATE)).exp()
 }
 
 /// RMS compressor with makeup gain: evens out loud and quiet passages ("Auto-Lautstärke", "Auto-Pegel").
-/// Near-silence below `floor_db` is never boosted, so hiss and room noise stay down.
+/// Near-silence below `LEVELER_FLOOR_DB` is never boosted, so hiss and room noise stay down.
 #[derive(Clone, Copy)]
 pub struct Leveler {
     ms: f32,
@@ -224,15 +225,16 @@ pub struct Leveler {
     threshold: f32,
     ratio: f32,
     makeup: f32,
-    floor_db: f32,
     // in near-silence keep the last gain instead of falling back to 0 dB, so the next syllable
     // starts already compressed
     hold: bool,
 }
 
+const LEVELER_FLOOR_DB: f32 = -55.0;
+
 impl Leveler {
-    pub fn new(threshold: f32, ratio: f32, makeup: f32, attack_ms: f32, release_ms: f32) -> Self {
-        Self { ms: 0.0, detect: coef(80.0), attack: coef(attack_ms), release: coef(release_ms), gain_db: 0.0, threshold, ratio, makeup, floor_db: -55.0, hold: false }
+    fn new(threshold: f32, ratio: f32, makeup: f32, attack_ms: f32, release_ms: f32) -> Self {
+        Self { ms: 0.0, detect: coef(80.0), attack: coef(attack_ms), release: coef(release_ms), gain_db: 0.0, threshold, ratio, makeup, hold: false }
     }
 
     /// 0 off, 1 soft, 2 night. Night keeps dialogue (about -24 dBFS RMS) where it is, so it lifts
@@ -276,9 +278,9 @@ impl Leveler {
     pub fn gain(&mut self, x: f32) -> f32 {
         self.ms = flush(self.ms + (x * x - self.ms) * self.detect);
         let level = 10.0 * (self.ms + 1e-12).log10();
-        let target = if level < self.floor_db {
+        let target = if level < LEVELER_FLOOR_DB {
             if self.hold {
-                return 10f32.powf(self.gain_db / 20.0);
+                return db_to_gain(self.gain_db);
             }
             0.0
         } else {
@@ -287,7 +289,7 @@ impl Leveler {
         };
         let k = if target < self.gain_db { self.attack } else { self.release };
         self.gain_db += (target - self.gain_db) * k;
-        10f32.powf(self.gain_db / 20.0)
+        db_to_gain(self.gain_db)
     }
 }
 
@@ -444,7 +446,7 @@ impl Agc {
         self.gain_db += (self.want - self.gain_db) * if self.want < self.gain_db { self.down } else { self.up };
         // given back at 30 dB/s
         self.guard_db = (AGC_TARGET + AGC_BURST - level - self.gain_db).min(self.guard_db + 0.3).min(0.0);
-        self.target = 10f32.powf((self.gain_db + self.guard_db) / 20.0);
+        self.target = db_to_gain(self.gain_db + self.guard_db);
     }
 
     /// `n` frames of mean square `p` into the 300 ms loudness reading
@@ -474,7 +476,7 @@ pub struct Gate {
     block_n: u32,
     mins: [f32; 40],
     min_pos: usize,
-    pub threshold: f32,
+    threshold: f32,
 }
 
 const GATE_BLOCK: u32 = 2400; // 50 ms
@@ -492,7 +494,7 @@ impl Gate {
             block_n: 0,
             mins: [1.0; 40],
             min_pos: 0,
-            threshold: 10f32.powf(-50.0 / 20.0),
+            threshold: db_to_gain(-50.0),
         }
     }
 
@@ -519,7 +521,7 @@ impl Gate {
             self.block_n = 0;
             let floor = self.mins.iter().copied().fold(f32::MAX, f32::min);
             // peak envelope sits ~3 dB above RMS for noise, so +12 dB over the RMS floor
-            self.threshold = (floor * 4.0 * 1.41).clamp(10f32.powf(-70.0 / 20.0), 10f32.powf(-25.0 / 20.0));
+            self.threshold = (floor * 4.0 * 1.41).clamp(db_to_gain(-70.0), db_to_gain(-25.0));
         }
     }
 
@@ -538,13 +540,13 @@ impl Gate {
 }
 
 /// Peak envelope follower, used to detect speech in the chat channel for ducking.
-pub struct Envelope {
-    pub value: f32,
+struct Envelope {
+    value: f32,
     rel: f32,
 }
 
 impl Envelope {
-    pub fn new(release_ms: f32) -> Self {
+    fn new(release_ms: f32) -> Self {
         Self { value: 0.0, rel: coef(release_ms) }
     }
     #[inline]
@@ -603,7 +605,7 @@ pub struct Limiter {
 impl Limiter {
     pub fn new(ceiling_db: f32, release_ms: f32) -> Self {
         Self {
-            ceiling: 10f32.powf(ceiling_db / 20.0),
+            ceiling: db_to_gain(ceiling_db),
             gain: 1.0,
             // reaches the target well within the 48-sample lookahead, but over ~10 samples instead of one
             attack: coef(0.1),
@@ -663,7 +665,7 @@ pub fn fader_to_gain(pos: f32) -> f32 {
 /// Microphone gain 0..=200 %: below 100 like a fader, above 100 up to +18 dB boost for quiet mics.
 pub fn mic_gain(pct: f32) -> f32 {
     let p = pct.clamp(0.0, 200.0);
-    if p <= 100.0 { fader_to_gain(p) } else { 10f32.powf((p - 100.0) / 100.0 * 18.0 / 20.0) }
+    if p <= 100.0 { fader_to_gain(p) } else { db_to_gain((p - 100.0) / 100.0 * 18.0) }
 }
 
 /// ChatMix -100..=100: positive turns Game down, negative turns Chat down.
@@ -675,10 +677,6 @@ pub fn chatmix(mix: f32) -> (f32, f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn db_to_gain(db: f32) -> f32 {
-        10f32.powf(db / 20.0)
-    }
 
     fn sine_gain(mut f: impl FnMut(f32) -> f32, freq: f32) -> f32 {
         let n = (RATE as usize) / 2;
@@ -848,19 +846,10 @@ mod tests {
             g.run_voice(speechy(0.2, i % 4800), true); // settle with voice on
         }
         // voice stops: 100 ms later the gate must still be (nearly) open
-        let mut y = 0.0;
-        for i in 0..4800 {
-            y = g.run_voice(0.1 * (TAU * 440.0 * i as f32 / RATE).sin().signum(), true);
-        }
-        let _ = y;
-        let mut g2 = Gate::new();
-        for i in 0..48_000 {
-            g2.run_voice(speechy(0.2, i % 4800), true);
-        }
         for _ in 0..(48_000 / 10) {
-            g2.run_voice(0.0, true);
+            g.run_voice(0.0, true);
         }
-        assert!(g2.gain > 0.9, "gate closed during hold: {}", g2.gain);
+        assert!(g.gain > 0.9, "gate closed during hold: {}", g.gain);
     }
 
     #[test]
