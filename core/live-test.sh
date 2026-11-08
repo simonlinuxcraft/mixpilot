@@ -100,8 +100,8 @@ check "audio arrives after switching back" "$(near "$(rms)" 0.354)"
 pactl unload-module "$MOD2"; MOD2=
 
 echo "-- robustness"
-XDG_CONFIG_HOME="$W/cfg" timeout 5 $BIN >"$W/second.log" 2>&1
-check "second instance refused (exit 3)" "$([ $? = 3 ] && echo ok || echo "rc=$?: $(cat "$W/second.log")")"
+XDG_CONFIG_HOME="$W/cfg" timeout 5 $BIN >"$W/second.log" 2>&1; rc=$?
+check "second instance refused (exit 3)" "$([ $rc = 3 ] && echo ok || echo "rc=$rc: $(cat "$W/second.log")")"
 kill $T; T=
 python3 -c "
 import struct,math
