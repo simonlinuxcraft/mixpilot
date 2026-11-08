@@ -451,7 +451,11 @@ fn set_autostart(on: bool) -> Result<(), String> {
     let exec = if std::env::var_os("SNAP").is_some() {
         "mixpilot --background".to_string()
     } else {
-        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        // an AppImage runs from a mount under /tmp that is gone at the next login; the image itself stays
+        let exe = match std::env::var_os("APPIMAGE") {
+            Some(p) => PathBuf::from(p),
+            None => std::env::current_exe().map_err(|e| e.to_string())?,
+        };
         format!("\"{}\" --background", exe.canonicalize().unwrap_or(exe).display())
     };
     std::fs::create_dir_all(autostart_dir()).map_err(|e| e.to_string())?;
