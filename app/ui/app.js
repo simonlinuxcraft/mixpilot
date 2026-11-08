@@ -327,7 +327,9 @@ function buttonGroup(container, options, get, set) {
 
 // A value you can also type: click, type, Enter. Esc reverts, arrow keys step (Shift: 10 steps).
 // German decimal commas and units ("75 %", "-6,5 dB") are accepted.
-function numField(input, { get, set, min, max, step = 1, show, toValue = (n) => n, label }) {
+// min and max are in the stored unit, step in the typed one (toValue/fromValue convert); max may be a getter
+function numField(input, { get, set, min, max, step = 1, show, toValue = (n) => n, fromValue = (v) => v, label }) {
+  const clamp = (v) => Math.min(typeof max === 'function' ? max() : max, Math.max(min, v));
   input.classList.add('num');
   input.type = 'text';
   input.inputMode = 'decimal';
@@ -338,8 +340,7 @@ function numField(input, { get, set, min, max, step = 1, show, toValue = (n) => 
     if (input.value === show()) return;
     const n = parseFloat(input.value.replace(',', '.').replace(/[^0-9.+-]/g, ''));
     if (Number.isFinite(n)) {
-      const v = Math.min(max, Math.max(min, toValue(n)));
-      set(v);
+      set(clamp(toValue(n)));
       paintAll();
       save();
     }
@@ -352,7 +353,7 @@ function numField(input, { get, set, min, max, step = 1, show, toValue = (n) => 
     else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
       const d = (e.key === 'ArrowUp' ? 1 : -1) * step * (e.shiftKey ? 10 : 1);
-      set(Math.min(max, Math.max(min, get() + d)));
+      set(clamp(toValue(fromValue(get()) + d)));
       paintAll();
       save();
       input.value = show();
@@ -509,7 +510,7 @@ function strip(id, label, master) {
       label: t('Master in Prozent'),
       get: () => masterDev.volume,
       set: (v) => setMaster(Math.round(v)),
-      min: 0, max: 100,
+      min: 0, max: () => Number(fader.max),
       show: () => (masterDev.mute ? t('stumm') : masterDev.known ? `${masterDev.volume} %` : t('kein Gerät')),
     });
   } else {
@@ -520,6 +521,7 @@ function strip(id, label, master) {
       set: (v) => (cfg[id].volume = Math.round(v * 10) / 10),
       min: 0, max: 100,
       toValue: (db) => (db <= -60 ? 0 : 100 * Math.pow(10, Math.min(0, db) / 60)),
+      fromValue: (v) => (v <= 0 ? -60 : 60 * Math.log10(v / 100)),
       show: () => (cfg[id].mute ? t('stumm') : fdb(cfg[id].volume)),
     });
   }
