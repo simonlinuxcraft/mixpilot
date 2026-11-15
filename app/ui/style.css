@@ -95,7 +95,7 @@ option { background: var(--panel2); color: var(--text); }
 /* at 100 % everything fits; zoomed in (Ctrl+Plus) the content scrolls instead of being cut off */
 main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 20px; display: flex; flex-direction: column; gap: 12px; }
 .page { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
-.cols { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.cols { display: flex; flex-wrap: wrap; gap: 16px; align-items: stretch; }
 .grow { flex: 1 1 360px; min-width: 0; }
 .grow2 { flex: 1 1 420px; min-width: 0; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
@@ -190,11 +190,11 @@ main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 20px; displa
 .name-error { align-self: center; font-size: 12px; color: var(--red); }
 .hint.alert { color: var(--red); }
 
-/* when an error banner and wrapped preset chips leave too little height, the LED rows get thinner instead of the tab scrolling */
-#tab-sound > .card { min-height: 0; }
-.bands-scroll { overflow-x: auto; flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
-.eqgrid { flex: 0 1 auto; min-height: 0; display: flex; gap: 4px; min-width: 520px; margin-bottom: 4px; padding: 8px 12px; border-radius: 6px; background: var(--well); }
-.eqgrid .ledcol { flex: 1 1 0; grid-template-rows: repeat(var(--rows), minmax(2px, 7px)); gap: 3px; }
+/* the EQ card takes the rest of the window; with an error banner or wrapped preset chips the LED rows get thinner instead of the tab scrolling */
+#tab-sound > .card { flex: 1 1 auto; min-height: 0; }
+.bands-scroll { overflow-x: auto; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.eqgrid { flex: 1 1 auto; min-height: 0; max-height: 200px; display: flex; gap: 4px; min-width: 520px; margin-bottom: 4px; padding: 8px 12px; border-radius: 6px; background: var(--well); }
+.eqgrid .ledcol { flex: 1 1 0; grid-template-rows: repeat(var(--rows), minmax(2px, 1fr)); gap: 3px; }
 .eqgrid .ledcol i { width: 100%; }
 .ledcol i.dim { opacity: 0.45; }
 /* ten equal cells so every band sits under the middle of its three LED columns */
@@ -265,8 +265,9 @@ main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 20px; displa
 .mail-addr { margin: 0; padding: 8px 14px; border-radius: 6px; background: var(--well); border: 1px solid var(--line2); font-weight: 600; }
 .bug-footer { display: flex; align-items: center; gap: 10px; padding: 12px 22px 16px; border-top: 1px solid var(--line); }
 
-/* long lists scroll inside their card, the window itself never does */
-#apps { max-height: 360px; overflow-y: auto; }
+/* the last row of cards reaches the bottom edge; long lists scroll inside their card, the window itself never does */
+#tab-mic > .grid, #tab-auto > .cols { flex: 1 1 auto; }
+#apps { flex: 1 1 0; min-height: 140px; overflow-y: auto; }
 #apps::-webkit-scrollbar { width: 8px; }
 #apps::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 4px; }
 #tab-mic .card { gap: 8px; }
