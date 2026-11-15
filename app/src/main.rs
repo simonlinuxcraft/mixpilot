@@ -374,8 +374,13 @@ fn record_mic_test() -> Result<(), String> {
     if MIC_TEST.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return Err("Der Mikrofon-Test läuft schon".into());
     }
-    let result = record_five_seconds(&mic_test_file());
+    let file = mic_test_file();
+    let result = record_five_seconds(&file);
     MIC_TEST.store(false, std::sync::atomic::Ordering::SeqCst);
+    // the voice is only kept until it is played back, a failed recording is not played
+    if result.is_err() {
+        let _ = std::fs::remove_file(&file);
+    }
     result
 }
 
@@ -1243,6 +1248,8 @@ fn main() {
         })
         .setup(move |app| {
             let handle = app.handle().clone();
+            // a quit during a microphone test lets pw-record finish the file, nothing else would remove it
+            let _ = std::fs::remove_file(mic_test_file());
             // without the AppIndicator library installed the tray crate panics instead of returning an error
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build_tray(&handle))) {
                 Ok(Ok(())) => TRAY_BUILT.store(true, std::sync::atomic::Ordering::Relaxed),
