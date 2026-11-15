@@ -987,12 +987,13 @@ function buildAuto() {
     });
   }
   const auto = $('autostart');
+  const paintAutostart = () => invoke('get_autostart').then((on) => auto.setAttribute('aria-checked', String(on)), showError);
   auto.addEventListener('click', async () => {
     const on = auto.getAttribute('aria-checked') !== 'true';
     await invoke('set_autostart', { on }).catch(showError);
-    auto.setAttribute('aria-checked', String(await invoke('get_autostart')));
+    paintAutostart();
   });
-  invoke('get_autostart').then((on) => auto.setAttribute('aria-checked', String(on)));
+  paintAutostart();
 }
 
 function assign(key, channel) {
@@ -1720,7 +1721,7 @@ async function openSetup() {
     await sleep(800);
     await adoptConfig();
     await refreshDevices();
-    runChecks();
+    runChecks().catch(showError);
   });
   $('setup-done').addEventListener('click', async () => {
     await adoptConfig();
