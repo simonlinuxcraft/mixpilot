@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.0.8 - Steadier microphone, clearer look
+
+- The audio core keeps running when PipeWire removes the microphone stream, for example when a headset turns off. It took PipeWire's answer for a lost connection and restarted, so all sound dropped for a moment, often in the middle of a game. The microphone now opens again on its own
+- The microphone fades out and back in around a dropout instead of clicking, and starts its processing fresh when the system default microphone changes
+- The clip warning also works for a microphone on one input of a stereo audio interface. The silent second input used to halve the measured peak
+- At large buffer sizes a channel that runs over blends instead of cutting hard
+- The meters drop to zero when the audio core is gone instead of freezing at the last level
+- Cards reach down to the bottom of the window, every card heading has the same label style, unlit LEDs in the EQ display lose their outlines, a dot shows whether the audio core and the microphone are running, and cards and channel strips get a slight top light
+- The dB fields step in dB with the arrow keys, and the master field reaches the fader's full range up to 150 %
+- Swiping sideways on a touchpad no longer lowers the slider under the pointer
+- Pressing Enter in the email field of the bug report no longer clears the report
+- The devices picked in the setup dialog are kept when the settings load late
+- "Edit…" on a preset shows that preset right away, and after resetting or deleting a preset the keyboard focus stays in the list
+- A slow read of the master volume no longer overwrites a value you just set
+- Errors while reading the autostart setting show in the error banner
+- When sending a bug report fails, the reason is a full sentence in German or English, and a failed connection shows curl's own message
+- A long bug report drops its oldest log lines instead of cutting off the end
+- Repeated Autopilot messages are listed once
+- Without the library for the tray icon, Mixpilot starts without a tray instead of crashing, and closing the window minimizes only when the tray icon really exists
+- The autostart entry keeps working after an update, with unusual characters in the path, and for the AppImage, where it pointed at a mount that is gone at the next login
+- Night mode follows a changed time zone without restarting the audio core
+- A microphone test recording that hangs is stopped after 2 seconds, and failed or leftover test recordings are deleted
+- Opening links no longer leaves zombie processes behind
+- An empty XDG_RUNTIME_DIR is treated like a missing one
+
 ## 0.0.7 - Quieter nights, clearer errors
 
 - Error messages say what to try next, for example which picker to check or that a disk is full, and offer "Report a bug" with the message already filled in

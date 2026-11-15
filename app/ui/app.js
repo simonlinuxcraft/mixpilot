@@ -1259,6 +1259,27 @@ async function runChecks() {
 // Shown once after an update. `version` stays null until the release that ships it sets it.
 const NEWS = [
   {
+    version: '0.0.8',
+    title: 'Stabileres Mikrofon, klarere Optik',
+    items: [
+      {
+        art: 'mute',
+        title: 'Mikrofon hält durch',
+        text: 'Setzt das Mikrofon kurz aus oder wechselt das Standardgerät, blendet Mixpilot weich aus und wieder ein, statt zu knacken. Fällt das Mikrofon mitten im Spiel weg, bleibt der übrige Ton an und das Mikrofon kommt von selbst zurück.',
+      },
+      {
+        art: 'mixer',
+        title: 'Aufgeräumte Optik',
+        text: 'Die Karten reichen bis zum unteren Fensterrand, alle Überschriften sehen gleich aus, und ein Punkt zeigt, ob Audio-Kern und Mikrofon laufen. Ist der Kern weg, fallen die Pegel auf null, statt stehen zu bleiben.',
+      },
+      {
+        art: 'error',
+        title: 'Weniger Stolperfallen',
+        text: 'Seitliches Wischen auf dem Touchpad verstellt keine Regler mehr, Enter im Fehlerbericht löscht ihn nicht mehr, und der Autostart findet Mixpilot auch nach einem Update. Fehlt die Bibliothek fürs Tray-Symbol, startet Mixpilot ohne Tray statt gar nicht.',
+      },
+    ],
+  },
+  {
     version: '0.0.7',
     title: 'Ruhigere Nächte, klarere Fehler',
     items: [
