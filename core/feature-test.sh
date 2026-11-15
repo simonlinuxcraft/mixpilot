@@ -98,12 +98,13 @@ print(g)"
 
 python3 -c "
 import wave,math,struct,random
-def save(name, gen, secs=60):
+def save(name, gen, secs=60, right=1):
     w=wave.open('$W/'+name,'w'); w.setnchannels(2); w.setsampwidth(2); w.setframerate(48000)
-    w.writeframes(b''.join(struct.pack('<hh',v,v) for v in (gen(i) for i in range(48000*secs))))
+    w.writeframes(b''.join(struct.pack('<hh',v,v*right) for v in (gen(i) for i in range(48000*secs))))
 save('tone.wav', lambda i: int(16384*math.sin(2*math.pi*440*i/48000)))
 save('quiet.wav', lambda i: int(32768*0.03*math.sin(2*math.pi*440*i/48000)), 20)
 save('loud.wav', lambda i: int(32767*0.9*math.sin(2*math.pi*440*i/48000)), 20)
+save('left.wav', lambda i: int(32767*0.9*math.sin(2*math.pi*440*i/48000)), 20, 0)
 save('fan.wav', lambda i: int(random.gauss(0, 180)), 20)
 random.seed(1)
 save('noise.wav', lambda i: int(random.gauss(0, 3000)), 20)"
@@ -142,6 +143,9 @@ feed tone.wav
 v=$(rms mixpilot_mic)
 check "processed voice arrives at Mixpilot Mikrofon" "$(near "$v" 0.354)"
 check "raw microphone peak reported for the clip warning" "$(near "$(level "s['levels']['mic_raw']")" 0.5)"
+feed left.wav
+check "raw peak of a microphone on one stereo input" "$(near "$(level "s['levels']['mic_raw']")" 0.9)"
+feed tone.wav
 check "microphone opened for the listener" "$(grep -Fq 'mic_active' "$W/daemon.log" && echo ok || echo 'no activation logged')"
 check "test source used, not the real microphone" "$(pw-link -l | grep -q 'mp_test_mic:capture' || grep -Fq 'input ["mp_test_mic"]' "$W/daemon.log" && echo ok || echo 'input target not applied')"
 cfg '{"mic":{"gain":50}}'

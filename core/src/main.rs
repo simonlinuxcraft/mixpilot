@@ -1070,18 +1070,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(bytes) = d.data() else { return };
             let start = off.min(bytes.len());
             let end = start.saturating_add(size).min(bytes.len());
-            p.mic_block.store((end - start) / 4, Relaxed);
+            let frames = (end - start) / 8;
+            p.mic_block.store(frames, Relaxed);
             let mut out = lock(&mo);
             let monitor = p.monitor.load(Relaxed);
             let mut mon = lock(&mm);
             let (mut peak, mut in_peak, mut raw) = (0f32, 0f32, 0f32);
             // a quantum above 2048 (raised max-quantum) comes in pieces, the stack buffer stays small
-            for chunk in bytes[start..end].chunks(2048 * 4) {
+            for chunk in bytes[start..start + frames * 8].chunks(2048 * 8) {
                 let mut input = [0f32; 2048];
-                let n = chunk.len() / 4;
-                for (i, b) in chunk.as_chunks::<4>().0.iter().enumerate() {
-                    input[i] = f32::from_le_bytes(*b);
-                    raw = raw.max(input[i].abs());
+                let n = chunk.len() / 8;
+                // mixed here, not by PipeWire, so a microphone on one input of a stereo interface
+                // reaches 1.0 for the clip check instead of 0.5
+                for (i, f) in chunk.as_chunks::<8>().0.iter().enumerate() {
+                    let l = f32::from_le_bytes([f[0], f[1], f[2], f[3]]);
+                    let r = f32::from_le_bytes([f[4], f[5], f[6], f[7]]);
+                    raw = raw.max(l.abs()).max(r.abs());
+                    input[i] = 0.5 * (l + r);
                 }
                 let (pk, ip) = mic_dsp.process(&input[..n], &p, &mut out, monitor.then_some(&mut *mon));
                 peak = peak.max(pk);
@@ -1399,7 +1404,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 mic_pinned.set(target.is_some());
                 p.mic_fresh.store(true, Relaxed);
-                match mic.connect(spa::utils::Direction::Input, target, CONNECT_FLAGS, &mut [Pod::from_bytes(&mono).unwrap()]) {
+                match mic.connect(spa::utils::Direction::Input, target, CONNECT_FLAGS, &mut [Pod::from_bytes(&stereo).unwrap()]) {
                     Ok(()) => {
                         mic_on.set(true);
                         mic_seen.set(u32::MAX);
