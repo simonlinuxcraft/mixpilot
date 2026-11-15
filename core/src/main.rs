@@ -32,9 +32,9 @@ use spa::pod::{serialize::PodSerializer, Object, Pod, Value};
 use config::{index_of, Config, CHANNELS};
 use dsp::{run5, sanitize, Agc, Biquad, Chain5, DeEsser, Ducker, Eq10, Gate, Leveler, Limiter, Smooth};
 
-/// Two cycles of stereo audio at quantum 8192, the largest PipeWire allows by default. The output
-/// keeps at most three of its own cycles, so latency cannot creep up.
-const RING_MAX: usize = 8192 * 2 * 2;
+/// Three cycles of stereo audio at quantum 8192, the largest PipeWire allows by default: as many as
+/// the output keeps of its own cycles (Backlog), so even there a backlog is trimmed with a blend.
+const RING_MAX: usize = 8192 * 2 * 3;
 /// 1 s of mono microphone audio: two 8192 blocks on top of the reader's slack, see Elastic.
 const MIC_RING_MAX: usize = 48_000;
 const BASS_FREQ: f32 = 100.0;
@@ -827,8 +827,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut ring = lock(&rings[i]);
                 // drop oldest first so the push never grows past the preallocated capacity
                 let over = (ring.len() + keep * 2).saturating_sub(RING_MAX);
-                let n = over.min(ring.len());
-                ring.drain(..n);
+                if over > 0 {
+                    let n = over.min(ring.len());
+                    cut(&mut ring, n);
+                }
                 ring.extend(bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)));
             })
             .register().unwrap_or_else(|e| die(e));
