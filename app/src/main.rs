@@ -1314,7 +1314,8 @@ mod tests {
         assert!(first.is_some());
         assert!(app_lock(&path).unwrap().is_none());
         drop(first);
-        assert!(app_lock(&path).unwrap().is_some());
+        // a child another test spawns right now holds a copy of the descriptor until it execs
+        assert!((0..100).any(|_| app_lock(&path).unwrap().is_some() || { std::thread::sleep(Duration::from_millis(10)); false }));
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
