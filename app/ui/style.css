@@ -89,8 +89,11 @@ option { background: var(--panel2); color: var(--text); }
 .tab { min-height: 42px; padding: 0 18px; border: none; border-radius: 8px; background: transparent; color: var(--muted); font-weight: 600; cursor: pointer; box-shadow: inset 0 -2px 0 transparent; }
 .tablist { display: flex; gap: 4px; }
 .tab[aria-selected="true"] { background: var(--panel2); color: var(--text); box-shadow: inset 0 -2px 0 var(--acc2); }
-.core-status { font-size: 12px; color: var(--muted); white-space: nowrap; margin-right: 6px; }
+.core-status { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); white-space: nowrap; margin-right: 6px; }
 .core-status.off { color: var(--red); }
+.core-status:not(:empty)::before, .mic-state::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--acc2); }
+.core-status.off::before, .mic-state:not(:disabled)::before { background: var(--red); }
+.mic-state.off::before { background: #5a5f67; }
 
 /* at 100 % everything fits; zoomed in (Ctrl+Plus) the content scrolls instead of being cut off */
 main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 20px; display: flex; flex-direction: column; gap: 12px; }
@@ -322,7 +325,7 @@ i.hi { background: var(--seg-hi); }
 .news-text h2 { margin: 0; font-size: 17px; }
 .news-text ul { padding-left: 16px; line-height: 1.5; }
 /* 24 px high so the text-sized button is still easy to hit */
-.mic-state { min-height: 24px; padding: 0; border: none; background: none; color: inherit; font-size: inherit; }
+.mic-state { display: inline-flex; align-items: center; gap: 7px; min-height: 24px; padding: 0 10px; border-radius: 12px; border: 1px solid var(--line2); background: var(--panel2); color: inherit; font-size: inherit; }
 .mic-state:disabled { cursor: default; }
 .mic-state:not(:disabled) { color: var(--red); cursor: pointer; text-decoration: underline dotted; }
 .news-art { display: flex; align-items: center; justify-content: center; padding: 6px; border-radius: 8px; background: var(--win); overflow: hidden; }

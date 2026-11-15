@@ -1140,6 +1140,7 @@ async function tickOnce() {
   setMicInMeter(micInLevel);
   $('mic-state').textContent = cfg.mic.mute ? t('stumm') : !s.mic_active ? ((s.devices?.sources ?? devices.sources).length ? t('Mikrofon aus') : t('kein Mikrofon')) : t('aktiv');
   $('mic-state').disabled = !cfg.mic.mute;
+  $('mic-state').classList.toggle('off', !cfg.mic.mute && !s.mic_active);
   paintEvents(s.events || []);
   apps = s.apps || [];
   paintApps();
