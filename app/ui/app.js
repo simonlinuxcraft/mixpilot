@@ -1105,11 +1105,9 @@ async function tickOnce() {
   try {
     s = await invoke('get_state', { micTest: tab === 'mic' });
   } catch {
-    // no core, no level: an old clip warning would stay forever
+    // no core: meters fall to zero and the microphone shows off instead of freezing on the last frame
     clippedAt = 0;
-    soundAt = Date.now();
-    paintGainHint('');
-    return;
+    s = { mic_active: false };
   }
   const lv = s.levels || {};
   for (const [id, st] of Object.entries(strips)) {
@@ -1141,7 +1139,7 @@ async function tickOnce() {
   $('mic-state').textContent = cfg.mic.mute ? t('stumm') : !s.mic_active ? ((s.devices?.sources ?? devices.sources).length ? t('Mikrofon aus') : t('kein Mikrofon')) : t('aktiv');
   $('mic-state').disabled = !cfg.mic.mute;
   $('mic-state').classList.toggle('off', !cfg.mic.mute && !s.mic_active);
-  paintEvents(s.events || []);
+  if (s.events) paintEvents(s.events);
   apps = s.apps || [];
   paintApps();
 }
