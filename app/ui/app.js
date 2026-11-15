@@ -114,9 +114,11 @@ async function pollMaster() {
   // and never start a second read while one waits for a slow pipewire-pulse
   if (document.hidden || masterBusy || masterPolling || Date.now() - masterTouched < 1200) return;
   masterPolling = true;
+  const touched = masterTouched;
   try {
     const m = await invoke('get_master');
-    Object.assign(masterDev, m, { known: true });
+    // a fader move or mute click during the read is newer than what came back
+    if (touched === masterTouched) Object.assign(masterDev, m, { known: true });
   } catch {
     masterDev.known = false;
   } finally {
