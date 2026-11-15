@@ -382,17 +382,18 @@ function bindRange(id, get, set, text) {
 // Mouse wheel over a control changes it (up = more, Shift = 10 steps); the page itself never scrolls.
 document.addEventListener('wheel', (e) => {
   const t = e.target.closest('input');
-  // Ctrl+wheel zooms the page
-  if (!t || e.ctrlKey) return;
+  // Ctrl+wheel zooms the page; Shift+wheel may come in as sideways scrolling, a sideways touchpad swipe alone changes nothing
+  const d = e.deltaY || (e.shiftKey ? e.deltaX : 0);
+  if (!t || e.ctrlKey || !d) return;
   if (t.type === 'range') {
     e.preventDefault();
     const step = Number(t.step || 1) * (e.shiftKey ? 10 : 1);
-    const v = Number(t.value) + (e.deltaY < 0 ? step : -step);
+    const v = Number(t.value) + (d < 0 ? step : -step);
     t.value = String(Math.min(Number(t.max), Math.max(Number(t.min), v)));
     t.dispatchEvent(new Event('input', { bubbles: true }));
   } else if (t.classList.contains('num')) {
     e.preventDefault();
-    t.dispatchEvent(new KeyboardEvent('keydown', { key: e.deltaY < 0 ? 'ArrowUp' : 'ArrowDown', shiftKey: e.shiftKey }));
+    t.dispatchEvent(new KeyboardEvent('keydown', { key: d < 0 ? 'ArrowUp' : 'ArrowDown', shiftKey: e.shiftKey }));
     t.blur();
   }
 }, { passive: false });
