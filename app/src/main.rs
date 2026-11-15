@@ -458,13 +458,30 @@ fn set_autostart(on: bool) -> Result<(), String> {
             Some(p) => PathBuf::from(p),
             None => std::env::current_exe().map_err(|e| e.to_string())?,
         };
-        format!("\"{}\" --background", exe.canonicalize().unwrap_or(exe).display())
+        format!("{} --background", exec_path(&exe.canonicalize().unwrap_or(exe).to_string_lossy()))
     };
     std::fs::create_dir_all(autostart_dir()).map_err(|e| e.to_string())?;
     let entry = format!(
         "[Desktop Entry]\nType=Application\nName=Mixpilot\nComment=Mixer, sound and microphone control\nExec={exec}\nIcon=mixpilot\nX-GNOME-Autostart-enabled=true\n"
     );
     std::fs::write(&file, entry).map_err(|e| e.to_string())
+}
+
+/// A path as one quoted Exec argument of a desktop entry. After an update replaced the running
+/// binary, Linux names it "<path> (deleted)". Inside quotes the spec reserves " ` $ \ (escaped
+/// with a backslash, itself escaped once more for the string value) and % (doubled).
+fn exec_path(path: &str) -> String {
+    let mut s = String::from("\"");
+    for c in path.strip_suffix(" (deleted)").unwrap_or(path).chars() {
+        match c {
+            '"' | '`' | '$' => s.extend(['\\', '\\', c]),
+            '\\' => s.push_str("\\\\\\\\"),
+            '%' => s.push_str("%%"),
+            _ => s.push(c),
+        }
+    }
+    s.push('"');
+    s
 }
 
 /// The device Mixpilot plays on: the chosen one, or the system default.
@@ -1242,6 +1259,13 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn autostart_exec_survives_odd_paths() {
+        assert_eq!(exec_path("/usr/bin/mixpilot (deleted)"), r#""/usr/bin/mixpilot""#);
+        assert_eq!(exec_path("/home/a b/Mixpilot.AppImage"), r#""/home/a b/Mixpilot.AppImage""#);
+        assert_eq!(exec_path(r#"/x/100%/"q"/$v/`c`/\b"#), r#""/x/100%%/\\"q\\"/\\$v/\\`c\\`/\\\\b""#);
+    }
 
     #[test]
     fn master_keeps_the_balance() {
