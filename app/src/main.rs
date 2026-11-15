@@ -1208,10 +1208,12 @@ fn main() {
         })
         .setup(move |app| {
             let handle = app.handle().clone();
-            match build_tray(&handle) {
-                Ok(()) => TRAY_BUILT.store(true, std::sync::atomic::Ordering::Relaxed),
+            // without the AppIndicator library installed the tray crate panics instead of returning an error
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build_tray(&handle))) {
+                Ok(Ok(())) => TRAY_BUILT.store(true, std::sync::atomic::Ordering::Relaxed),
                 // no tray (desktop without AppIndicator support): the window stays the way back in
-                Err(e) => eprintln!("mixpilot: tray: {e}"),
+                Ok(Err(e)) => eprintln!("mixpilot: tray: {e}"),
+                Err(_) => eprintln!("mixpilot: tray: no AppIndicator library"),
             }
             listen(handle.clone());
             let restore = get_config().ok().and_then(|c| c["mic_hotkey"].as_bool()).unwrap_or(false);
