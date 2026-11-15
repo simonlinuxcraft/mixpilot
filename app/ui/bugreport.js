@@ -41,6 +41,8 @@ for (const id of ['info', 'log']) {
     paintPreview();
   });
 }
+// Enter in the email field would submit the form and reload the window, losing what was typed
+$('form').addEventListener('submit', (e) => e.preventDefault());
 $('add-errors').addEventListener('click', () => {
   $('err-field').hidden = false;
   $('add-errors').hidden = true;
