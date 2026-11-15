@@ -218,24 +218,24 @@ impl Backlog {
         // more than three cycles is a backlog, not a buffer
         let cap = frames * 2 * 3;
         if ring.len() > cap {
-            cut(ring, ring.len() - cap);
+            cut(ring, ring.len() - cap, 2);
         }
         self.min = self.min.min(ring.len().saturating_sub(frames * 2));
         self.cycles += 1;
         if self.cycles == 100 {
             // what never drained in 100 cycles is delay; a little stays for jitter, pairs stay whole
-            cut(ring, self.min.saturating_sub(256) & !1);
+            cut(ring, self.min.saturating_sub(256) & !1, 2);
             *self = Self::default();
         }
     }
 }
 
-/// Drops the oldest `n` samples (even). The first 64 frames after the cut blend in from the audio
-/// they replace, so it does not click.
-fn cut(ring: &mut VecDeque<f32>, n: usize) {
-    let fade = 64.min((ring.len() - n) / 2);
-    for k in 0..fade * 2 {
-        let (old, w) = (ring[k], (k / 2) as f32 / fade as f32);
+/// Drops the oldest `n` samples (whole frames of `ch` channels). The first 64 frames after the cut
+/// blend in from the audio they replace, so it does not click.
+fn cut(ring: &mut VecDeque<f32>, n: usize, ch: usize) {
+    let fade = 64.min((ring.len() - n) / ch);
+    for k in 0..fade * ch {
+        let (old, w) = (ring[k], (k / ch) as f32 / fade as f32);
         ring[n + k] = old + (ring[n + k] - old) * w;
     }
     ring.drain(..n);
@@ -488,6 +488,10 @@ struct Elastic {
     frames: usize,
     /// reader frames since a read found the ring short while it still held samples
     stalled: Option<usize>,
+    /// samples left to play out fading after the ring ran short, out of `fade`, and the fade-in after
+    tail: usize,
+    fade: usize,
+    live: f32,
 }
 
 impl Elastic {
@@ -516,13 +520,16 @@ impl Elastic {
             self.stalled = (len > 0 && frames == self.frames).then_some(0);
             self.clean = 0;
             self.playing = false;
+            // what is left plays out fading, so the dropout does not start with a click
+            self.tail = len.min(frames);
+            self.fade = self.tail;
             return false;
         }
         self.frames = frames;
         // two writer blocks can land between reads when the clocks slip past each other
         if len > goal + 2 * block + 4 * FRAME {
             // a stall left a backlog: jump instead of catching up for seconds
-            ring.drain(..len - goal - block);
+            cut(ring, len - goal - block, 1);
             len = ring.len();
         }
         self.low = self.low.min(len);
@@ -538,6 +545,22 @@ impl Elastic {
             self.clean = 0;
         }
         true
+    }
+
+    /// One output sample, `play` from `start`: a dropout fades out over what the ring still held and
+    /// the sound fades back in afterwards, so neither edge clicks.
+    fn sample(&mut self, ring: &mut VecDeque<f32>, play: bool) -> f32 {
+        if !play {
+            if self.tail == 0 {
+                return 0.0;
+            }
+            let v = ring.pop_front().unwrap_or(0.0) * self.tail as f32 / self.fade as f32;
+            self.tail -= 1;
+            return v;
+        }
+        let y = self.next(ring) * self.live;
+        self.live += (1.0 - self.live) * 0.01;
+        y
     }
 
     fn next(&mut self, ring: &mut VecDeque<f32>) -> f32 {
@@ -829,7 +852,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let over = (ring.len() + keep * 2).saturating_sub(RING_MAX);
                 if over > 0 {
                     let n = over.min(ring.len());
-                    cut(&mut ring, n);
+                    cut(&mut ring, n, 2);
                 }
                 ring.extend(bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)));
             })
@@ -956,11 +979,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if clarity {
                     (l, r) = (cl, cr);
                 }
-                if mon_play {
-                    let v = mon_el.next(&mut mon);
-                    l += v * 0.8;
-                    r += v * 0.8;
-                }
+                let v = mon_el.sample(&mut mon, mon_play);
+                l += v * 0.8;
+                r += v * 0.8;
                 (l, r) = mix.limiter.run(l, r, limit);
                 peaks[LV_MASTER] = peaks[LV_MASTER].max(l.abs());
                 peaks[LV_MASTER + 1] = peaks[LV_MASTER + 1].max(r.abs());
@@ -1021,7 +1042,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut ring = lock(&src_out);
             let play = src_el.start(&mut ring, frames, src_p.mic_block.load(Relaxed));
             for f in 0..frames {
-                let v = if play { src_el.next(&mut ring) } else { 0.0 };
+                let v = src_el.sample(&mut ring, play);
                 bytes[f * 4..f * 4 + 4].copy_from_slice(&v.to_le_bytes());
             }
             drop(ring);
@@ -1663,6 +1684,29 @@ mod tests {
             assert!(bad <= 2, "{bad} bad reads with in {qi} out {qo} {ppm} ppm");
             assert!(fill < qo as f64 + 2000.0, "mean fill {fill:.0} with in {qi} out {qo} {ppm} ppm");
         }
+    }
+
+    #[test]
+    fn microphone_ring_blends_dropouts_and_jumps() {
+        let sine = |t: usize| 0.5 * (std::f32::consts::TAU * 440.0 * t as f32 / 48_000.0).sin();
+        let (mut el, mut ring, mut t, mut out) = (super::Elastic::default(), VecDeque::new(), 0usize, Vec::new());
+        // steady blocks, a writer pause of three cycles (dropout), then a stall's backlog of 14 blocks (jump)
+        for cycle in 0..60 {
+            let blocks = match cycle {
+                20..=22 => 0,
+                40 => 14,
+                _ => 1,
+            };
+            for _ in 0..blocks * 480 {
+                ring.push_back(sine(t));
+                t += 1;
+            }
+            let play = el.start(&mut ring, 480, 480);
+            out.extend((0..480).map(|_| el.sample(&mut ring, play)));
+        }
+        // the sine's own steepest step is 0.029
+        let worst = out.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
+        assert!(worst < 0.06, "{worst}");
     }
 
     #[test]
