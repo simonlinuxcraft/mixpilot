@@ -633,6 +633,10 @@ fn event(events: &Events, key: &'static str, args: &[&str]) {
     log!("{key} {args:?}");
     let (h, m) = local_time();
     let mut e = events.borrow_mut();
+    // a program that opens one stream after another (a game's voice proxy) would fill the list with copies
+    if e.back().is_some_and(|(_, k, a)| *k == key && a.iter().eq(args)) {
+        return;
+    }
     if e.len() >= 8 {
         e.pop_front();
     }
@@ -1507,6 +1511,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
+
+    #[test]
+    fn repeated_events_are_listed_once() {
+        let ev = super::Events::default();
+        for _ in 0..8 {
+            super::event(&ev, "sorted", &["WowVoiceProxy.exe", "Game"]);
+        }
+        super::event(&ev, "sorted", &["Discord", "Chat"]);
+        super::event(&ev, "sorted", &["WowVoiceProxy.exe", "Game"]);
+        let keys: Vec<_> = ev.borrow().iter().map(|(_, _, a)| a[0].clone()).collect();
+        assert_eq!(keys, ["WowVoiceProxy.exe", "Discord", "WowVoiceProxy.exe"]);
+    }
 
     #[test]
     fn runtime_dir_fallback_must_be_private() {
