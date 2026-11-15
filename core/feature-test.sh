@@ -176,6 +176,14 @@ sleep 0.5
 check "a new system default starts the microphone fresh" "$(grep -Fq 'microphone follows "mp_test_mic"' "$W/daemon.log" && echo ok || echo 'move not noticed')"
 cfg '{"input":"mp_test_mic"}'
 wait $HOLD
+# PipeWire removes the capture under the core when the device goes away; the core has to stay up
+timeout 3 pw-record --target mixpilot_mic "$W/hold.wav" >/dev/null 2>&1 &
+HOLD=$!
+sleep 1
+pw-cli destroy "$(pw-cli ls Node | awk '/^\tid /{id=$2} /node.name = "mixpilot_mic_in"/{sub(",","",id); print id}')" >/dev/null 2>&1
+wait $HOLD
+check "running after PipeWire removed the microphone stream" "$(alive)"
+check "voice arrives again after that" "$(near "$(rms mixpilot_mic)" 0.354)"
 kill $FEED; FEED=
 pw-cat -p --target mp_test_micbus -P '{ node.name=feed_noise }' "$W/noise.wav" >/dev/null 2>&1 &
 FEED=$!

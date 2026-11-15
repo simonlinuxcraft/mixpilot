@@ -1354,6 +1354,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             switch
         };
         sync(out.node_id(), rcfg.borrow().output.clone(), &out_seen, &out_want, "output");
+        // PipeWire can remove the capture node under a running stream; it then sits silent without an error
+        if mic_on.get() && mic_seen.get() != u32::MAX && mic.node_id() == u32::MAX {
+            log!("microphone node removed by PipeWire");
+            merr.set(true);
+        }
         if mic_on.get() && sync(mic.node_id(), rcfg.borrow().input.clone(), &mic_seen, &mic_want, "input") {
             // WirePlumber moves the stream a moment later; until then the old device still delivers
             mic_moved.set(4);
@@ -1528,10 +1533,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let core_fail = fail.clone();
     let _core_listener = core
         .add_listener_local()
-        .error(move |id, _seq, res, msg| {
-            if id == pw::core::PW_ID_CORE {
-                core_fail(format!("PipeWire connection lost ({res}: {msg})"));
-            }
+        // only EPIPE ends the connection; "unknown resource" after a stream PipeWire already removed is harmless
+        .error(move |id, _seq, res, msg| match (id, -res) {
+            (pw::core::PW_ID_CORE, libc::EPIPE) => core_fail(format!("PipeWire connection lost ({res}: {msg})")),
+            (pw::core::PW_ID_CORE, _) => log!("PipeWire error ({res}: {msg})"),
+            _ => {}
         })
         .register();
 
