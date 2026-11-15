@@ -1228,6 +1228,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (mic_seen, mic_want) = (Cell::new(u32::MAX), RefCell::new(None::<String>));
     // ticks until a microphone that moved to another device counts as a new session
     let mic_moved = Cell::new(0u32);
+    // the default source's name with input "", else the pinned device's id
+    let mic_follow = RefCell::new(String::new());
     let (mic_on, mic_idle, mic_wait, mic_pinned) = (Cell::new(false), Cell::new(0u32), Cell::new(0u32), Cell::new(false));
     // failures in a row, the retry doubles up to 64 s; a minute of running or another input resets it
     let (mic_fails, mic_ok, mic_for) = (Cell::new(0u32), Cell::new(0u32), RefCell::new(String::new()));
@@ -1334,6 +1336,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if mic_on.get() && sync(mic.node_id(), rcfg.borrow().input.clone(), &mic_seen, &mic_want, "input") {
             // WirePlumber moves the stream a moment later; until then the old device still delivers
             mic_moved.set(4);
+        }
+        // WirePlumber also moves it on its own when the system default changes (input "") or a pinned
+        // microphone leaves and comes back; the core only sees which device that should be
+        let follow = {
+            let input = &rcfg.borrow().input;
+            if input.is_empty() {
+                defs.borrow()[1].clone()
+            } else {
+                devs.borrow().iter().find(|(_, d)| !d.sink && d.name == *input).map_or(String::new(), |(id, _)| id.to_string())
+            }
+        };
+        if *mic_follow.borrow() != follow {
+            if mic_on.get() && mic_moved.get() == 0 {
+                log!("microphone follows {follow:?}");
+                mic_moved.set(4);
+            }
+            mic_follow.replace(follow);
         }
         if mic_moved.get() > 0 {
             mic_moved.set(mic_moved.get() - 1);

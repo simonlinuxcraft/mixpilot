@@ -171,6 +171,9 @@ sleep 1
 cfg '{"input":""}'
 sleep 1
 check "input back to the system default (pinned before)" "$(case "$(links_of mp_test_mic2)" in *mixpilot_mic_in*) echo ok ;; *) echo "still on: $(links_of mp_test_mic)" ;; esac)"
+pactl set-default-source mp_test_mic
+sleep 0.5
+check "a new system default starts the microphone fresh" "$(grep -Fq 'microphone follows "mp_test_mic"' "$W/daemon.log" && echo ok || echo 'move not noticed')"
 cfg '{"input":"mp_test_mic"}'
 wait $HOLD
 kill $FEED; FEED=
