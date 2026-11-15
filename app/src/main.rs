@@ -675,7 +675,10 @@ fn open_support() {
 }
 
 fn xdg_open(url: &str) {
-    let _ = Command::new("xdg-open").arg(url).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    // waited for on a side thread, otherwise each call leaves a zombie until Mixpilot ends
+    if let Ok(mut child) = Command::new("xdg-open").arg(url).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
+        std::thread::spawn(move || child.wait());
+    }
 }
 
 const BUG_EMAIL: &str = "simonlinuxcraft@pm.me";
