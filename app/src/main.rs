@@ -397,8 +397,15 @@ fn record_five_seconds(file: &std::path::Path) -> Result<(), String> {
             return Err("Aufnahme fehlgeschlagen".into());
         }
     }
-    // SIGINT lets pw-record finish the file header
+    // SIGINT lets pw-record finish the file header; one stuck on a hung PipeWire would block every later test
     unsafe { libc::kill(rec.id() as i32, libc::SIGINT) };
+    for _ in 0..20 {
+        if !matches!(rec.try_wait(), Ok(None)) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let _ = rec.kill();
     let _ = rec.wait();
     if std::fs::metadata(file).is_ok_and(|m| m.len() > 44) { Ok(()) } else { Err("Aufnahme fehlgeschlagen".into()) }
 }
