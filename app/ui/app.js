@@ -1701,18 +1701,22 @@ async function init() {
 // "Fertig" waits for the core, which creates the settings.
 async function openSetup() {
   openDialog($('setup'));
+  // device choices made before the config existed move into it once, the pickers show them from there on
+  const adoptConfig = async () => {
+    if (cfg) return;
+    cfg = await loadConfig(10);
+    for (const k of ['output', 'input']) if (cfg && pending[k]) cfg[k] = pending[k];
+  };
   $('recheck').addEventListener('click', async () => {
     await invoke('ensure_core').catch(() => {});
     await sleep(800);
-    if (!cfg) cfg = await loadConfig(10);
+    await adoptConfig();
     await refreshDevices();
     runChecks();
   });
   $('setup-done').addEventListener('click', async () => {
-    if (!cfg) cfg = await loadConfig(10);
+    await adoptConfig();
     if (!cfg) return runChecks();
-    if (pending.output) cfg.output = pending.output;
-    if (pending.input) cfg.input = pending.input;
     await invoke('set_autostart', { on: $('setup-autostart').checked }).catch(showError);
     cfg.setup_done = true;
     // a fresh install has nothing to catch up on
