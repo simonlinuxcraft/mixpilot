@@ -648,7 +648,8 @@ function presetChips(box) {
     }
     // after naming, the focus lands on the preset that is now selected
     const next = focused === 'name' ? `p:${selP}` : focused;
-    if (next) box.querySelector(`[data-k="${CSS.escape(next)}"]`)?.focus();
+    // a button that is gone after reset or delete hands the focus to the selected preset
+    if (next) (box.querySelector(`[data-k="${CSS.escape(next)}"]`) ?? box.querySelector(`[data-k="${CSS.escape(`p:${selP}`)}"]`))?.focus();
   };
 }
 
@@ -680,8 +681,11 @@ function openEqMenu(id, chip) {
   item(t('Bearbeiten…'), 'menuitem', () => {
     selP = chPreset(id);
     naming = false;
-    document.querySelector('.tab[data-tab="sound"]').click();
+    const soundTab = document.querySelector('.tab[data-tab="sound"]');
+    soundTab.click();
     editFor = id;
+    paintAll();
+    soundTab.focus();
   });
   box.addEventListener('keydown', (e) => {
     const items = [...box.querySelectorAll('button')];
@@ -1032,6 +1036,8 @@ function paintApps(force) {
     x.setAttribute('aria-label', t('Zuordnung für {0} vergessen', a.name));
     // keeps its space so all channel pickers line up
     x.style.visibility = own ? '' : 'hidden';
+    // after forgetting, the focus moves to this app's channel picker if the app is still listed
+    x.dataset.key = a.key;
     x.addEventListener('click', () => { forget(a.key); save(); paintApps(true); });
     row.append(info, s, x);
     box.append(row);
