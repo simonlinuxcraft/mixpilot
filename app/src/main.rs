@@ -831,11 +831,19 @@ fn report_text(r: &BugReport) -> String {
     if r.include_info {
         t += &format!("\n\n--- System ---\n{}", r.info.trim());
     }
+    let email = format!("\n\nUser-Email: {}", if r.email.trim().is_empty() { "(not provided)" } else { r.email.trim() });
     if r.include_log {
-        t += &format!("\n\n--- Core log (last 60 lines) ---\n{}", r.log);
+        let head = "\n\n--- Core log (last 60 lines) ---\n";
+        // the proxy keeps 20000 UTF-16 units and would cut the end; the oldest log lines give way instead
+        let room = 20_000usize.saturating_sub([t.as_str(), head, &email].iter().map(|s| s.encode_utf16().count()).sum());
+        let mut log = r.log.as_str();
+        while log.encode_utf16().count() > room {
+            log = log.split_once('\n').map_or("", |(_, rest)| rest);
+        }
+        t += head;
+        t += log;
     }
-    t += &format!("\n\nUser-Email: {}", if r.email.trim().is_empty() { "(not provided)" } else { r.email.trim() });
-    t
+    t + &email
 }
 
 /// Sends through the proxy with curl (present on every desktop, staged in the snap).
@@ -1324,6 +1332,9 @@ mod tests {
         };
         let t = report_text(&r);
         assert!(t.contains("OS: as shown") && !t.contains("core: as shown") && t.contains("--- Wish ---\nmore presets"));
+        let long = BugReport { include_log: true, email: "a@b.de".into(), log: (0..400).map(|i| format!("line {i} {}\n", "x".repeat(80))).collect(), ..r };
+        let t = report_text(&long);
+        assert!(t.encode_utf16().count() <= 20_000 && t.contains("line 399") && !t.contains("line 0 ") && t.ends_with("User-Email: a@b.de"));
     }
 
     #[test]
