@@ -105,6 +105,9 @@ main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 20px; displa
 .card-head.line { padding-top: 8px; border-top: 1px solid var(--line); }
 .label { font-weight: 700; font-size: 13px; letter-spacing: 0.08em; }
 .title { font-weight: 600; font-size: 16px; }
+/* every card opens with a caps label like CHATMIX; the settings inside keep normal case */
+.card h2.title { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.card h2.title .muted { margin-left: 4px; text-transform: none; letter-spacing: 0; font-weight: 600; }
 .title.small { font-size: 14px; }
 .muted { color: var(--muted); font-weight: 400; font-size: 13px; }
 .mono { font-family: var(--num); font-variant-numeric: tabular-nums; font-weight: 500; font-size: 13px; color: var(--muted); }
