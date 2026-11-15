@@ -319,6 +319,9 @@ const EN = {
   '(leer)': '(empty)',
   'Nur deine Texte.': 'Only your texts.',
   'Grund: {0}. Du kannst den Bericht stattdessen per E-Mail schicken, er ist schon ausgefüllt.': 'Reason: {0}. You can send the report by email instead, it is already filled in.',
+  'Schon 5 Berichte in der letzten Stunde, versuch es später noch mal': 'Already 5 reports in the last hour, try again later',
+  'Der Dienst für Fehlerberichte hat den Bericht nicht angenommen': 'The bug report service did not accept the report',
+  'Der Dienst für Fehlerberichte ist gerade nicht erreichbar': 'The bug report service cannot be reached right now',
   'Öffnet dein Mailprogramm, Empfänger {0}': 'Opens your mail program, recipient {0}',
 };
 

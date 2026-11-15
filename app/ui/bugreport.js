@@ -41,6 +41,13 @@ for (const id of ['info', 'log']) {
     paintPreview();
   });
 }
+// the report proxy answers with short English codes
+const PROXY_REASONS = {
+  'rate-limited': 'Schon 5 Berichte in der letzten Stunde, versuch es später noch mal',
+  'upstream rejected': 'Der Dienst für Fehlerberichte hat den Bericht nicht angenommen',
+  'upstream error': 'Der Dienst für Fehlerberichte ist gerade nicht erreichbar',
+  'server error': 'Der Dienst für Fehlerberichte ist gerade nicht erreichbar',
+};
 // Enter in the email field would submit the form and reload the window, losing what was typed
 $('form').addEventListener('submit', (e) => e.preventDefault());
 $('add-errors').addEventListener('click', () => {
@@ -82,7 +89,7 @@ $('send').addEventListener('click', async () => {
     await invoke('send_bug_report', { report: report() });
     show('done');
   } catch (e) {
-    $('fail-text').textContent = t('Grund: {0}. Du kannst den Bericht stattdessen per E-Mail schicken, er ist schon ausgefüllt.', t(String(e)).replace(/\.$/, ''));
+    $('fail-text').textContent = t('Grund: {0}. Du kannst den Bericht stattdessen per E-Mail schicken, er ist schon ausgefüllt.', t(PROXY_REASONS[e] ?? String(e)).replace(/\.$/, ''));
     $('mail-addr').textContent = info.email;
     show('fail');
   } finally {
