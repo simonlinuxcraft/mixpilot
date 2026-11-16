@@ -376,11 +376,11 @@ fn record_mic_test() -> Result<(), String> {
     }
     let file = mic_test_file();
     let result = record_five_seconds(&file);
-    MIC_TEST.store(false, std::sync::atomic::Ordering::SeqCst);
     // the voice is only kept until it is played back, a failed recording is not played
     if result.is_err() {
         let _ = std::fs::remove_file(&file);
     }
+    MIC_TEST.store(false, std::sync::atomic::Ordering::SeqCst);
     result
 }
 
