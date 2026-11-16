@@ -554,7 +554,7 @@ impl Elastic {
             if self.tail == 0 {
                 return 0.0;
             }
-            let v = ring.pop_front().unwrap_or(0.0) * self.tail as f32 / self.fade as f32;
+            let v = ring.pop_front().unwrap_or(0.0) * self.live * self.tail as f32 / self.fade as f32;
             self.tail -= 1;
             return v;
         }
