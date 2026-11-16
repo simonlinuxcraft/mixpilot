@@ -790,6 +790,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set when the server connection or a channel fails: exit non-zero instead of hanging silently,
     // the app's watchdog starts a fresh instance.
     let failed = Rc::new(Cell::new(false));
+    // the streams also go Unconnected when the core disconnects them on the way out
+    let running = Rc::new(Cell::new(true));
     let fail = {
         let (failed, ml) = (failed.clone(), mainloop.downgrade());
         Rc::new(move |why: String| {
@@ -828,13 +830,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         ).unwrap_or_else(|e| die(e));
         let rings = rings.clone();
-        let fail = fail.clone();
+        let (fail, running) = (fail.clone(), running.clone());
         let l = stream
             .add_local_listener_with_user_data(())
-            .state_changed(move |_, _, _, new| {
-                if let StreamState::Error(e) = new {
-                    fail(format!("channel {} failed: {e}", CHANNELS[i].id));
-                }
+            .state_changed(move |_, _, _, new| match new {
+                StreamState::Error(e) => fail(format!("channel {} failed: {e}", CHANNELS[i].id)),
+                // PipeWire removed the node; a channel cannot come back in place, so start over
+                StreamState::Unconnected if running.get() => fail(format!("channel {} removed by PipeWire", CHANNELS[i].id)),
+                _ => {}
             })
             .process(move |s, _| {
                 let Some(mut buf) = s.dequeue_buffer() else { return };
@@ -902,6 +905,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             // Paused also shows up briefly before WirePlumber reports "no target", so only Streaming counts
             StreamState::Streaming if reported.replace(false) => log!("output connected again"),
+            // PipeWire removed the node; the retry's own disconnect lands here too and clears it afterwards
+            StreamState::Unconnected => retry.set(true),
             _ => {}
         })
         .process(move |s, _| {
@@ -1028,8 +1033,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let src_links: Rc<RefCell<HashSet<u32>>> = Rc::new(RefCell::new(HashSet::new()));
     let (src_out, src_p) = (mic_out.clone(), params.clone());
     let mut src_el = Elastic::default();
+    let (src_fail, src_running) = (fail.clone(), running.clone());
     let src_listener = mic_src
         .add_local_listener_with_user_data(())
+        .state_changed(move |_, _, _, new| {
+            if matches!(new, StreamState::Unconnected) && src_running.get() {
+                src_fail("Mixpilot microphone removed by PipeWire".into());
+            }
+        })
         .process(move |s, _| {
             let Some(mut buf) = s.dequeue_buffer() else { return };
             let req = buf.requested() as usize;
@@ -1252,6 +1263,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // the default source's name with input "", else the pinned device's id
     let mic_follow = RefCell::new(String::new());
     let (mic_on, mic_idle, mic_wait, mic_pinned) = (Cell::new(false), Cell::new(0u32), Cell::new(0u32), Cell::new(false));
+    let mic_up = Cell::new(false);
     // failures in a row, the retry doubles up to 64 s; a minute of running or another input resets it
     let (mic_fails, mic_ok, mic_for) = (Cell::new(0u32), Cell::new(0u32), RefCell::new(String::new()));
     let mic_test = state_dir.join("mic-test");
@@ -1355,7 +1367,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         sync(out.node_id(), rcfg.borrow().output.clone(), &out_seen, &out_want, "output");
         // PipeWire can remove the capture node under a running stream; it then sits silent without an error
-        if mic_on.get() && mic_seen.get() != u32::MAX && mic.node_id() == u32::MAX {
+        let has_node = mic_on.get() && mic.node_id() != u32::MAX;
+        if mic_up.replace(has_node) && !has_node && mic_on.get() {
             log!("microphone node removed by PipeWire");
             merr.set(true);
         }
@@ -1393,8 +1406,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             out_ticks.set(out_ticks.get() + 1);
             if out_ticks.get() >= RETRY_TICKS {
                 out_ticks.set(0);
-                out_retry.set(false);
                 let _ = out.disconnect();
+                out_retry.set(false);
                 if let Err(e) = out.connect(spa::utils::Direction::Output, None, CONNECT_FLAGS, &mut [Pod::from_bytes(&stereo).unwrap()]) {
                     log!("output reconnect failed: {e}");
                     out_retry.set(true);
@@ -1533,16 +1546,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let core_fail = fail.clone();
     let _core_listener = core
         .add_listener_local()
-        // only EPIPE ends the connection; "unknown resource" after a stream PipeWire already removed is harmless
+        // "unknown resource" answers the release of a node PipeWire already removed; the timer handles that loss
         .error(move |id, _seq, res, msg| match (id, -res) {
-            (pw::core::PW_ID_CORE, libc::EPIPE) => core_fail(format!("PipeWire connection lost ({res}: {msg})")),
-            (pw::core::PW_ID_CORE, _) => log!("PipeWire error ({res}: {msg})"),
+            (pw::core::PW_ID_CORE, libc::ENOENT) => log!("PipeWire error ({res}: {msg})"),
+            (pw::core::PW_ID_CORE, _) => core_fail(format!("PipeWire connection lost ({res}: {msg})")),
             _ => {}
         })
         .register();
 
     log!("running");
     mainloop.run();
+    running.set(false);
     // Disconnect first so the data threads are out of our process callbacks before the listeners go.
     for s in &streams {
         let _ = s.disconnect();

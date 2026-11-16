@@ -76,6 +76,7 @@ import wave,array,math
 w=wave.open('$W/cap.wav'); a=array.array('h',w.readframes(w.getnframes()))[24000:]
 print('%.4f %.4f'%(math.sqrt(sum(x*x for x in a)/max(1,len(a)))/32768, max(map(abs,a or [0]))/32768))"
 }
+nid() { pw-cli ls Node | awk -v n="$1" '/^\tid /{id=$2} $0 ~ "node.name = \""n"\"" {sub(",","",id); print id}'; }
 between() { python3 -c "import sys; sys.exit(0 if $2 <= float('$1') <= $3 else 1)" 2>/dev/null && echo ok || echo "got $1, want $2..$3"; }
 feed() {
   [ -n "$FEED" ] && kill "$FEED" 2>/dev/null
@@ -180,7 +181,7 @@ wait $HOLD
 timeout 3 pw-record --target mixpilot_mic "$W/hold.wav" >/dev/null 2>&1 &
 HOLD=$!
 sleep 1
-pw-cli destroy "$(pw-cli ls Node | awk '/^\tid /{id=$2} /node.name = "mixpilot_mic_in"/{sub(",","",id); print id}')" >/dev/null 2>&1
+pw-cli destroy "$(nid mixpilot_mic_in)" >/dev/null 2>&1
 wait $HOLD
 check "running after PipeWire removed the microphone stream" "$(alive)"
 check "voice arrives again after that" "$(near "$(rms mixpilot_mic)" 0.354)"
@@ -338,6 +339,11 @@ check "last microphone gone: capture closed, no echo of the output" "$(pw-link -
 check "last microphone gone: reported as gone, not as unused" "$(grep -Fq 'mic_gone' "$W/daemon.log" && echo ok || echo missing)"
 wait $HOLD
 
+echo "-- nodes removed by PipeWire"
+pw-cli destroy "$(nid mixpilot_output)" >/dev/null 2>&1
+sleep 3
+check "output comes back after PipeWire removed it" "$([ -n "$(nid mixpilot_output)" ] && echo ok || echo gone)"
+
 echo "-- shutdown"
 kill $MEDIA; MEDIA=
 kill -TERM $D; wait $D; rc=$?; D=
@@ -345,6 +351,16 @@ check "clean exit" "$([ $rc = 0 ] && echo ok || echo "rc=$rc")"
 sleep 0.5
 check "no mixpilot nodes left" "$([ "$(pw-cli ls Node | grep -c 'node.name = "mixpilot_')" = 0 ] && echo ok || echo left)"
 check "state file removed" "$([ ! -e "$STATE" ] && echo ok || echo exists)"
+# a removed channel cannot be reconnected in place: the core ends with 2 and the app starts a fresh one
+XDG_CONFIG_HOME="$W/cfg" $BIN >"$W/daemon2.log" 2>&1 &
+D=$!
+sleep 2
+pw-cli destroy "$(nid mixpilot_game)" >/dev/null 2>&1
+i=0
+while [ $i -lt 30 ] && kill -0 $D 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
+if kill -0 $D 2>/dev/null; then kill $D; wait $D; rc="still running"; else wait $D; rc=$?; fi
+D=
+check "removed channel: core exits with 2" "$([ "$rc" = 2 ] && echo ok || echo "rc=$rc")"
 echo
 [ $FAILS = 0 ] && echo "ALL OK" || echo "$FAILS FAILED (log $W/daemon.log)"
 exit $FAILS
